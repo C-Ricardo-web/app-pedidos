@@ -245,22 +245,23 @@
         );
         const total = subtotal + domicilio;
 
-        const { data: nuevoPedido, error } = await supabaseClient
-          .from("pedidos")
-          .insert([
-            {
-              nombre,
-              barrio,
-              direccion,
-              telefono,
-              subtotal,
-              domicilio,
-              total,
-              estado: "pendiente",
-              observacion,
-            },
-          ])
-          .select();
+        const response = await fetch("/pedido", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    cliente: nombre,
+    detalle: platosSeleccionados.map(p => p.nombre_plato).join(", ")
+  })
+});
+
+const data = await response.json();
+if (data.error) {
+  alert("Error: " + data.error);
+  return;
+}
+
+alert("Pedido creado y notificado");
+
 
         if (error) {
           alert("Error: " + error.message);
