@@ -44,7 +44,6 @@ app.post('/pedido', async (req, res) => {
     total,
     estado,
     observacion,
-    detalle // lista de platos en texto
   } = req.body;
 
   // Guardar en Supabase
