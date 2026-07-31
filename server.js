@@ -1,7 +1,6 @@
 const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -80,7 +79,7 @@ app.post('/webhook', (req, res) => {
   res.sendStatus(200);
 });
 
-// Función para enviar mensajes a WhatsApp
+// Función para enviar mensajes a WhatsApp (usando fetch nativo de Node 18+)
 async function enviarWhatsApp(texto) {
   try {
     await fetch(`https://graph.facebook.com/v17.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
