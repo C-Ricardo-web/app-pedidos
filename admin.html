@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+  <head>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Sistema de Pedidos</title>
+  </head>
+
+  <body class="bg-gray-100" style="font-family: &quot;Inter&quot;, sans-serif">
+    <audio
+      id="sonido"
+      src="https://www.soundjay.com/buttons/sounds/button-3.mp3"
+    ></audio>
+
+    <h2 class="text-3xl font-bold text-center my-6">
+      Dashboard Administrativo
+    </h2>
+    <div
+      id="estadisticas"
+      class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto mb-6"
+    ></div>
+    <div id="lista" class="max-w-3xl mx-auto"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+      const supabaseClient = supabase.createClient(
+        "https://hjludjhcwipjdtgulrsh.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqbHVkamhjd2lwamR0Z3VscnNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NjMxNzIsImV4cCI6MjA4OTQzOTE3Mn0.unIiloMDsuio0hMntL6_FjD4rb1Cuk8UpPlGBs_WSyU",
+      );
+
+      async function crearPedido() {
+        const nombre = document.getElementById("nombre").value;
+        const direccion = document.getElementById("direccion").value;
+        const pedido = document.getElementById("pedido").value;
+
+        console.log("Intentando guardar...");
+
+        const { data, error } = await supabaseClient
+          .from("pedidos")
+          .insert([{ nombre, direccion, pedido, estado: "pendiente" }]);
+
+        if (error) {
+          console.error(error);
+          alert("Error: " + error.message);
+        } else {
+          alert("Pedido guardado 🔥");
+          cargarPedidos();
+        }
+      }
+
+      async function cargarPedidos() {
+        const { data, error } = await supabaseClient
+          .from("pedidos")
+          .select("*")
+          .order("id", { ascending: false });
+
+        const lista = document.getElementById("lista");
+        lista.innerHTML = "";
+
+        mostrarEstadisticas(data);
+
+        data.forEach((p) => {
+          const item = document.createElement("div");
+          let color = "";
+
+          if (p.estado === "pendiente") color = "gray";
+          if (p.estado === "preparacion") color = "orange";
+          if (p.estado === "listo") color = "green";
+          if (p.estado === "entregado") color = "blue";
+
+          item.innerHTML = `
+  <div class="bg-white shadow-md rounded-xl p-4 m-3 border-l-8"
+       style="border-color:${color}">
+    <p class="font-bold text-lg">${p.nombre}</p>
+    <p>${p.pedido}</p>
+    <p class="text-sm text-gray-500">Estado: ${p.estado}</p>
+
+  </div>
+`;
+          lista.appendChild(item);
+        });
+      }
+
+      function mostrarEstadisticas(data) {
+        let pendientes = 0;
+        let preparacion = 0;
+        let listos = 0;
+        let entregados = 0;
+        let totalVendido = 0;
+
+        data.forEach((p) => {
+          if (p.estado === "pendiente") pendientes++;
+          if (p.estado === "preparacion") preparacion++;
+          if (p.estado === "listo") listos++;
+          if (p.estado === "entregado") entregados++;
+          totalVendido += p.total || 0; // suma de totales
+        });
+
+        const contenedor = document.getElementById("estadisticas");
+
+        contenedor.innerHTML = `
+    <div class="bg-white p-4 shadow rounded text-center">
+      <p class="text-sm text-gray-500">Pendientes</p>
+      <p class="text-2xl font-bold">${pendientes}</p>
+    </div>
+
+    <div class="bg-white p-4 shadow rounded text-center">
+      <p class="text-sm text-gray-500">En preparación</p>
+      <p class="text-2xl font-bold">${preparacion}</p>
+    </div>
+
+    <div class="bg-white p-4 shadow rounded text-center">
+      <p class="text-sm text-gray-500">Listos</p>
+      <p class="text-2xl font-bold">${listos}</p>
+    </div>
+
+    <div class="bg-white p-4 shadow rounded text-center">
+      <p class="text-sm text-gray-500">Entregados</p>
+      <p class="text-2xl font-bold">${entregados}</p>
+    </div>
+
+    <div class="bg-white p-4 shadow rounded text-center col-span-2">
+      <p class="text-sm text-gray-500">Total vendido</p>
+      <p class="text-2xl font-bold">$${totalVendido}</p>
+    </div>
+  `;
+      }
+
+      cargarPedidos();
+
+      supabaseClient
+        .channel("pedidos-tiempo-real")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "pedidos" },
+          (payload) => {
+            if (payload.eventType === "INSERT") {
+              document.getElementById("sonido").play();
+            }
+            cargarPedidos();
+          },
+        )
+        .subscribe();
+    </script>
+  </body>
+</html>

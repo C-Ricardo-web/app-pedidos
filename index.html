@@ -1,0 +1,422 @@
+<!doctype html>
+<html>
+  <head>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
+    <style>
+      .ts-control {
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+        background-color: white;
+      }
+      .ts-dropdown {
+        z-index: 40 !important;
+      }
+      #modal-menu {
+        z-index: 50;
+      }
+    </style>
+
+    <title>Sistema de Pedidos</title>
+  </head>
+  <body class="bg-gray-100" style="font-family: &quot;Inter&quot;, sans-serif">
+    <h2 class="text-3xl font-bold text-center my-6">Nuevo Pedido</h2>
+
+    <div class="bg-white shadow-lg rounded-xl p-6 max-w-md mx-auto">
+      <input
+        id="nombre"
+        placeholder="Nombre"
+        class="w-full border p-2 mb-3 rounded"
+      />
+      <select
+        id="barrio"
+        class="w-full border p-2 mb-3 rounded"
+        onchange="actualizarDomicilio()"
+      >
+        <option value="">Selecciona un barrio</option>
+      </select>
+      <input
+        id="direccion"
+        placeholder="Dirección"
+        class="w-full border p-2 mb-3 rounded"
+      />
+      <input
+        id="telefono"
+        placeholder="Teléfono"
+        class="w-full border p-2 mb-3 rounded"
+      />
+      <input
+        id="domicilio"
+        placeholder="Costo domicilio"
+        value=""
+        class="w-full border p-2 mb-3 rounded"
+      />
+      <textarea
+        id="observacion"
+        placeholder="Observaciones del pedido"
+        class="w-full border p-2 mb-3 rounded"
+      ></textarea>
+
+      <!-- Botón para abrir modal -->
+      <button
+        onclick="abrirModal()"
+        class="w-full bg-green-600 text-white p-2 rounded hover:bg-green-700 mb-3"
+      >
+        Agregar plato
+      </button>
+
+      <!-- Lista de platos seleccionados -->
+      <div id="platos-seleccionados" class="mb-3"></div>
+
+      <!-- Totales -->
+      <p id="subtotal" class="font-bold">Subtotal: $0</p>
+      <p id="total" class="font-bold">Total: $0</p>
+
+      <button
+        onclick="crearPedido()"
+        class="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700"
+      >
+        Crear pedido
+      </button>
+    </div>
+
+    <!-- Modal -->
+    <div
+      id="modal-menu"
+      class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center"
+    >
+      <div class="bg-white p-6 rounded shadow-lg max-w-md w-full">
+        <h3 class="text-xl font-bold mb-4">Selecciona un plato</h3>
+        <div id="menu-content"></div>
+        <div class="flex justify-between mt-4">
+          <button
+            onclick="cerrarModal()"
+            class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+          >
+            Cerrar
+          </button>
+          <button
+            id="btn-aceptar"
+            class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+          >
+            Aceptar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="text-3xl font-bold text-center my-6">Pedidos</h2>
+    <div id="lista" class="max-w-3xl mx-auto"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+      const supabaseClient = supabase.createClient(
+        "https://hjludjhcwipjdtgulrsh.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqbHVkamhjd2lwamR0Z3VscnNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NjMxNzIsImV4cCI6MjA4OTQzOTE3Mn0.unIiloMDsuio0hMntL6_FjD4rb1Cuk8UpPlGBs_WSyU",
+      );
+
+      let platosSeleccionados = [];
+
+      async function abrirModal() {
+        const { data, error } = await supabaseClient
+          .from("menu")
+          .select("*")
+          .eq("disponible", true);
+        if (error) {
+          console.error(error);
+          return;
+        }
+
+        const content = document.getElementById("menu-content");
+        content.innerHTML = "";
+        platosSeleccionadosModal = []; // reiniciar selección temporal
+
+        data.forEach((plato) => {
+          const btn = document.createElement("div");
+          btn.textContent = `${plato.nombre_plato} - $${plato.precio}`;
+          btn.className =
+            "block w-full text-left p-2 border rounded mb-2 hover:bg-gray-100 cursor-pointer";
+          btn.onclick = () => togglePlato(plato, btn);
+          content.appendChild(btn);
+        });
+
+        // Aquí asignas la lógica al botón ya existente en el HTML
+        document.getElementById("btn-aceptar").onclick = () => {
+          platosSeleccionados.push(...platosSeleccionadosModal);
+          renderPlatos();
+          cerrarModal();
+        };
+
+        document.getElementById("modal-menu").classList.remove("hidden");
+      }
+
+      function togglePlato(plato, element) {
+        const index = platosSeleccionadosModal.findIndex(
+          (p) => p.id === plato.id,
+        );
+        if (index >= 0) {
+          // quitar selección
+          platosSeleccionadosModal.splice(index, 1);
+          element.classList.remove("bg-blue-100", "border-blue-500");
+        } else {
+          // agregar selección
+          platosSeleccionadosModal.push(plato);
+          element.classList.add("bg-blue-100", "border-blue-500");
+        }
+      }
+
+      function cerrarModal() {
+        document.getElementById("modal-menu").classList.add("hidden");
+      }
+
+      function agregarPlato(plato) {
+        platosSeleccionados.push(plato);
+        renderPlatos();
+      }
+
+      function renderPlatos() {
+        const div = document.getElementById("platos-seleccionados");
+        div.innerHTML = platosSeleccionados
+          .map(
+            (p, i) => `
+  <div class="flex justify-between items-center mb-1">
+    <span>${p.nombre_plato} - $${p.precio}</span>
+    <button onclick="eliminarPlato(${i})" 
+            class="bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600">
+      ✕
+    </button>
+  </div>
+`,
+          )
+          .join("");
+
+        const subtotal = platosSeleccionados.reduce(
+          (acc, p) => acc + p.precio,
+          0,
+        );
+        const domicilio = parseInt(document.getElementById("domicilio").value);
+
+        // Si no hay platos, total = 0
+        const total = platosSeleccionados.length > 0 ? subtotal + domicilio : 0;
+
+        document.getElementById("subtotal").textContent =
+          `Subtotal: $${subtotal}`;
+        document.getElementById("total").textContent = `Total: $${total}`;
+      }
+
+      function eliminarPlato(index) {
+        platosSeleccionados.splice(index, 1);
+        renderPlatos();
+      }
+
+      async function crearPedido() {
+        const nombre = document.getElementById("nombre").value.trim();
+        const barrioSelect = document.getElementById("barrio");
+        const barrio = barrioSelect.options[barrioSelect.selectedIndex].text;
+        const direccion = document.getElementById("direccion").value.trim();
+        const telefono = document.getElementById("telefono").value.trim();
+        const domicilio = parseInt(document.getElementById("domicilio").value);
+        const observacion = document.getElementById("observacion").value.trim();
+
+        if (
+          !nombre ||
+          !direccion ||
+          !telefono ||
+          platosSeleccionados.length === 0
+        ) {
+          alert(
+            "Por favor completa todos los campos y agrega al menos un plato.",
+          );
+          return;
+        }
+
+        const subtotal = platosSeleccionados.reduce(
+          (acc, p) => acc + p.precio,
+          0,
+        );
+        const total = subtotal + domicilio;
+
+        const { data: nuevoPedido, error } = await supabaseClient
+          .from("pedidos")
+          .insert([
+            {
+              nombre,
+              barrio,
+              direccion,
+              telefono,
+              subtotal,
+              domicilio,
+              total,
+              estado: "pendiente",
+              observacion,
+            },
+          ])
+          .select();
+
+        if (error) {
+          alert("Error: " + error.message);
+          return;
+        }
+
+        const pedidoId = nuevoPedido[0].id;
+
+        const detalles = platosSeleccionados.map((p) => ({
+          pedido_id: pedidoId,
+          plato_id: p.id,
+          nombre_plato: p.nombre_plato,
+          precio: p.precio,
+          cantidad: 1,
+        }));
+
+        await supabaseClient.from("pedido_detalle").insert(detalles);
+
+        alert("Pedido guardado");
+        cargarPedidos();
+
+        // Resetear formulario
+        document.getElementById("nombre").value = "";
+        document.getElementById("direccion").value = "";
+        document.getElementById("telefono").value = "";
+        document.getElementById("domicilio").value = ""; // valor por defecto
+        document.getElementById("observacion").value = "";
+
+        // Resetear selector de barrio (Tom Select)
+        const barrioSelectTS = document.getElementById("barrio").tomselect;
+        if (barrioSelectTS) {
+          barrioSelectTS.clear();
+        }
+
+        // Vaciar platos seleccionados
+        platosSeleccionados = [];
+        renderPlatos();
+      }
+
+      // Cargar barrios desde la tabla 'barrios' en Supabase
+      async function cargarBarrios() {
+        const { data, error } = await supabaseClient
+          .from("barrios")
+          .select("*");
+        if (error) {
+          console.error(error);
+          return;
+        }
+
+        const select = document.getElementById("barrio");
+        select.innerHTML = '<option value="">Selecciona un barrio</option>';
+
+        data.forEach((b) => {
+          const option = document.createElement("option");
+          option.value = b.precio_domicilio;
+          option.textContent = b.nombre_barrio;
+          select.appendChild(option);
+        });
+
+        // Inicializar Tom Select sobre el selector
+        new TomSelect("#barrio", {
+          create: false,
+          sortField: { field: "text", direction: "asc" },
+          placeholder: "Escribe para buscar un barrio...",
+          dropdownParent: "body",
+        });
+      }
+
+      function actualizarDomicilio() {
+        const select = document.getElementById("barrio");
+        const precio = select.value;
+        document.getElementById("domicilio").value = precio ? precio : "0";
+        renderPlatos(); // recalcula totales
+      }
+
+      // Llamar una sola vez al cargar la página
+      cargarBarrios();
+
+      async function cargarPedidos() {
+        const { data: pedidos, error } = await supabaseClient
+          .from("pedidos")
+          .select("*")
+          .order("id", { ascending: false });
+        if (error) {
+          console.error(error);
+          return;
+        }
+
+        const lista = document.getElementById("lista");
+        lista.innerHTML = "";
+
+        for (const p of pedidos) {
+          const { data: detalle } = await supabaseClient
+            .from("pedido_detalle")
+            .select("*")
+            .eq("pedido_id", p.id);
+
+          let color =
+            p.estado === "pendiente"
+              ? "gray"
+              : p.estado === "preparacion"
+                ? "orange"
+                : p.estado === "listo"
+                  ? "green"
+                  : "blue";
+
+          const item = document.createElement("div");
+          item.innerHTML = `
+            <div class="bg-white shadow-md rounded-xl p-4 m-3 border-l-8" style="border-color:${color}">
+              <p class="font-bold text-lg">${p.nombre}</p>
+              <p><strong>Barrio:</strong> ${p.barrio}</p>
+              <p><strong>Dirección:</strong> ${p.direccion}</p>
+              <p><strong>Teléfono:</strong> ${p.telefono}</p>
+              <p><strong>Platos:</strong> ${(detalle || []).map((d) => d.nombre_plato).join(", ")}</p>
+              <p><strong>Observación:</strong> ${p.observacion || ""}</p>
+              <p>Subtotal: $${p.subtotal}</p>
+              <p>Domicilio: $${p.domicilio}</p>
+              <p>Total: $${p.total}</p>
+              <p class="text-sm text-gray-500">Estado: ${p.estado}</p>
+            </div>
+          `;
+          lista.appendChild(item);
+        }
+      }
+
+      cargarPedidos();
+
+      // Suscripción en tiempo real a la tabla pedidos
+      supabaseClient
+        .channel("pedidos-channel")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "pedidos" },
+          (payload) => {
+            console.log("Cambio en pedidos:", payload);
+
+            // Vuelve a cargar la lista completa cada vez que hay cambios
+            cargarPedidos();
+          },
+        )
+        .subscribe();
+
+      // Suscripción en tiempo real a la tabla pedido_detalle
+      supabaseClient
+        .channel("detalle-channel")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "pedido_detalle" },
+          (payload) => {
+            console.log("Cambio en detalle:", payload);
+
+            // También refresca pedidos porque los platos cambian
+            cargarPedidos();
+          },
+        )
+        .subscribe();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+  <head>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Sistema de Pedidos</title>
+  </head>
+  <body class="bg-gray-100" style="font-family: &quot;Inter&quot;, sans-serif">
+    <h2 class="text-3xl font-bold text-center my-6">Pantalla Domiciliario</h2>
+
+    <div id="lista" class="max-w-3xl mx-auto"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+      const supabaseClient = supabase.createClient(
+        "https://hjludjhcwipjdtgulrsh.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqbHVkamhjd2lwamR0Z3VscnNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NjMxNzIsImV4cCI6MjA4OTQzOTE3Mn0.unIiloMDsuio0hMntL6_FjD4rb1Cuk8UpPlGBs_WSyU",
+      );
+
+      async function crearPedido() {
+        const nombre = document.getElementById("nombre").value;
+        const direccion = document.getElementById("direccion").value;
+        const pedido = document.getElementById("pedido").value;
+
+        console.log("Intentando guardar...");
+
+        const { data, error } = await supabaseClient
+          .from("pedidos")
+          .insert([{ nombre, direccion, pedido, estado: "pendiente" }]);
+
+        if (error) {
+          console.error(error);
+          alert("Error: " + error.message);
+        } else {
+          alert("Pedido guardado 🔥");
+          cargarPedidos();
+        }
+      }
+
+      async function cargarPedidos() {
+        const { data, error } = await supabaseClient
+          .from("pedidos")
+          .select("*")
+          .order("id", { ascending: false })
+          .eq("estado", "listo");
+
+        const lista = document.getElementById("lista");
+        lista.innerHTML = "";
+
+        data.forEach((p) => {
+          const item = document.createElement("div");
+          let color = "green";
+
+          item.innerHTML = `
+  <div class="bg-white shadow-md rounded-xl p-4 m-3 border-l-8"
+       style="border-color:${color}">
+    <p class="font-bold text-lg">${p.nombre}</p>
+    <p>${p.pedido}</p>
+    <p class="text-sm text-gray-500">Estado: listo</p>
+
+    <button onclick="cambiarEstado('${p.id}', '${p.estado}')"
+      class="mt-2 bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+      Entregar pedido
+    </button>
+  </div>
+`;
+          lista.appendChild(item);
+        });
+      }
+
+      async function cambiarEstado(id, estadoActual) {
+        let nuevoEstado = "";
+
+        nuevoEstado = "entregado";
+
+        const { error } = await supabaseClient
+          .from("pedidos")
+          .update({ estado: nuevoEstado })
+          .eq("id", id);
+
+        if (error) {
+          alert("Error al actualizar");
+        } else {
+          cargarPedidos();
+        }
+      }
+
+      cargarPedidos();
+
+      supabaseClient
+        .channel("pedidos-tiempo-real")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "pedidos" },
+          (payload) => {
+            console.log("Cambio detectado:", payload);
+            cargarPedidos();
+          },
+        )
+        .subscribe();
+    </script>
+  </body>
+</html>
