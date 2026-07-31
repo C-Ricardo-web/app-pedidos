@@ -218,88 +218,40 @@
         renderPlatos();
       }
 
-      async function crearPedido() {
-        const nombre = document.getElementById("nombre").value.trim();
-        const barrioSelect = document.getElementById("barrio");
-        const barrio = barrioSelect.options[barrioSelect.selectedIndex].text;
-        const direccion = document.getElementById("direccion").value.trim();
-        const telefono = document.getElementById("telefono").value.trim();
-        const domicilio = parseInt(document.getElementById("domicilio").value);
-        const observacion = document.getElementById("observacion").value.trim();
+     async function crearPedido() {
+  const nombre = document.getElementById("nombre").value.trim();
+  const platoTexto = platosSeleccionados.map(p => p.nombre_plato).join(", ");
 
-        if (
-          !nombre ||
-          !direccion ||
-          !telefono ||
-          platosSeleccionados.length === 0
-        ) {
-          alert(
-            "Por favor completa todos los campos y agrega al menos un plato.",
-          );
-          return;
-        }
+  if (!nombre || platosSeleccionados.length === 0) {
+    alert("Por favor ingresa tu nombre y al menos un plato.");
+    return;
+  }
 
-        const subtotal = platosSeleccionados.reduce(
-          (acc, p) => acc + p.precio,
-          0,
-        );
-        const total = subtotal + domicilio;
+  const response = await fetch("/pedido", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cliente: nombre,
+      detalle: platoTexto
+    })
+  });
 
-        const response = await fetch("/pedido", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    cliente: nombre,
-    detalle: platosSeleccionados.map(p => p.nombre_plato).join(", ")
-  })
-});
+  const data = await response.json();
+  if (data.error) {
+    alert("Error: " + data.error);
+    return;
+  }
 
-const data = await response.json();
-if (data.error) {
-  alert("Error: " + data.error);
-  return;
+  alert("Pedido creado y notificado");
+
+  // Resetear formulario
+  document.getElementById("nombre").value = "";
+
+  // Vaciar platos seleccionados
+  platosSeleccionados = [];
+  renderPlatos();
 }
 
-alert("Pedido creado y notificado");
-
-
-        if (error) {
-          alert("Error: " + error.message);
-          return;
-        }
-
-        const pedidoId = nuevoPedido[0].id;
-
-        const detalles = platosSeleccionados.map((p) => ({
-          pedido_id: pedidoId,
-          plato_id: p.id,
-          nombre_plato: p.nombre_plato,
-          precio: p.precio,
-          cantidad: 1,
-        }));
-
-        await supabaseClient.from("pedido_detalle").insert(detalles);
-
-        alert("Pedido guardado");
-        cargarPedidos();
-
-        // Resetear formulario
-        document.getElementById("nombre").value = "";
-        document.getElementById("direccion").value = "";
-        document.getElementById("telefono").value = "";
-        document.getElementById("domicilio").value = ""; // valor por defecto
-        document.getElementById("observacion").value = "";
-
-        // Resetear selector de barrio (Tom Select)
-        const barrioSelectTS = document.getElementById("barrio").tomselect;
-        if (barrioSelectTS) {
-          barrioSelectTS.clear();
-        }
-
-        // Vaciar platos seleccionados
-        platosSeleccionados = [];
-        renderPlatos();
-      }
 
       // Cargar barrios desde la tabla 'barrios' en Supabase
       async function cargarBarrios() {

@@ -32,49 +32,25 @@ app.get('/domiciliario', (req, res) => {
   res.sendFile(path.join(__dirname, 'domiciliario.html'));
 });
 
-// Endpoint para crear pedido con todos los campos
+// Endpoint para crear pedido
 app.post('/pedido', async (req, res) => {
-  const {
-    nombre,
-    barrio,
-    direccion,
-    telefono,
-    subtotal,
-    domicilio,
-    total,
-    estado,
-    observacion,
-  } = req.body;
+  const { cliente, detalle } = req.body;
 
   // Guardar en Supabase
   const { data, error } = await supabase
     .from('pedidos')
-    .insert([{
-      nombre,
-      barrio,
-      direccion,
-      telefono,
-      subtotal,
-      domicilio,
-      total,
-      estado,
-      observacion
-    }]);
+    .insert([{ cliente, detalle }]);
 
   if (error) {
     console.error(error);
     return res.status(500).json({ error: 'Error al guardar pedido' });
   }
 
-  // Enviar notificación por WhatsApp con resumen
-  await enviarWhatsApp(
-    `Nuevo pedido de ${nombre} (${barrio}): ${detalle}\n` +
-    `Dirección: ${direccion}\nTel: ${telefono}\nTotal: $${total}`
-  );
+  // Enviar notificación por WhatsApp
+  await enviarWhatsApp(`Nuevo pedido de ${cliente}: ${detalle}`);
 
   res.json({ mensaje: 'Pedido creado y notificado', pedido: data });
 });
-
 
 // Webhook de verificación
 app.get('/webhook', (req, res) => {
