@@ -317,105 +317,114 @@ app.post("/webhook", async (req, res) => {
       await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
       break;
 
-case "confirmacion":
-  // Actualizar conversación a finalizado
-  await supabase
-    .from("conversaciones")
-    .update({ observacion: mensaje, estado: "finalizado" })
-    .eq("id", conv.id);
+    case "confirmacion":
+      // Actualizar conversación a finalizado
+      await supabase
+        .from("conversaciones")
+        .update({ observacion: mensaje, estado: "finalizado" })
+        .eq("id", conv.id);
 
-  console.log("📌 Estado cambiado a: finalizado");
+      console.log("📌 Estado cambiado a: finalizado");
 
-  // 1. Obtener todos los barrios y buscar coincidencia aproximada
-  const { data: barriosData = [] } = await supabase
-    .from("barrios")
-    .select("nombre_barrio, precio_domicilio");
+      // 1. Obtener todos los barrios y buscar coincidencia aproximada
+      const { data: barriosData = [] } = await supabase
+        .from("barrios")
+        .select("nombre_barrio, precio_domicilio");
 
-  const barrioCliente = conv.barrio.trim().toLowerCase();
-  const barrioMatch = barriosData.find(b =>
-    b.nombre_barrio.toLowerCase().includes(barrioCliente)
-  );
+      const barrioCliente = conv.barrio.trim().toLowerCase();
+      const barrioMatch = barriosData.find((b) =>
+        b.nombre_barrio.toLowerCase().includes(barrioCliente),
+      );
 
-  const domicilio = barrioMatch?.precio_domicilio || 0;
-  if (!barrioMatch) {
-    console.warn(`⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`);
-  }
+      const domicilio = barrioMatch?.precio_domicilio || 0;
+      if (!barrioMatch) {
+        console.warn(
+          `⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`,
+        );
+      }
 
-  // 2. Obtener todos los platos y buscar coincidencia aproximada
-  const { data: menuData = [] } = await supabase
-    .from("platos")
-    .select("id, nombre_plato, precio");
+      // 2. Obtener todos los platos y buscar coincidencia aproximada
+      const { data: menuData = [] } = await supabase
+        .from("platos")
+        .select("id, nombre_plato, precio");
 
-  const platosDetallados = conv.platos.map(nombre => {
-    const match = menuData.find(p =>
-      p.nombre_plato.toLowerCase().includes(nombre.toLowerCase())
-    );
-    return {
-      plato_id: match?.id || null,
-      nombre_plato: match?.nombre_plato || nombre,
-      precio: match?.precio || 0,
-      cantidad: 1
-    };
-  });
+      const platosDetallados = (conv.platos || []).map((nombre) => {
+        const nombreCliente = nombre.toLowerCase();
+        const match = menuData.find((p) =>
+          p.nombre_plato.toLowerCase().includes(nombreCliente),
+        );
+        return {
+          plato_id: match?.id || null,
+          nombre_plato: match?.nombre_plato || nombre,
+          precio: match?.precio || 0,
+          cantidad: 1,
+        };
+      });
 
-  // 3. Calcular subtotal y total
-  const subtotal = platosDetallados.reduce((acc, p) => acc + (p.precio * p.cantidad), 0);
-  const total = subtotal + domicilio;
+      // 3. Calcular subtotal y total
+      const subtotal = platosDetallados.reduce(
+        (acc, p) => acc + p.precio * p.cantidad,
+        0,
+      );
+      const total = subtotal + domicilio;
 
-  // 4. Insertar pedido
-  const { data: pedido, error } = await supabase
-    .from("pedidos")
-    .insert([{
-      nombre: conv.nombre,
-      direccion: conv.direccion,
-      telefono: conv.telefono,
-      domicilio,
-      subtotal,
-      total,
-      estado: "pendiente",
-      barrio: conv.barrio,
-      observacion: mensaje,
-      created_at: new Date().toISOString()
-    }])
-    .select()
-    .single();
+      // 4. Insertar pedido
+      const { data: pedido, error } = await supabase
+        .from("pedidos")
+        .insert([
+          {
+            nombre: conv.nombre,
+            direccion: conv.direccion,
+            telefono: conv.telefono,
+            domicilio,
+            subtotal,
+            total,
+            estado: "pendiente",
+            barrio: conv.barrio,
+            observacion: mensaje,
+            created_at: new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single();
 
-  if (error) {
-    console.error("❌ Error creando pedido:", error.message);
-  } else {
-    console.log("✅ Pedido guardado en tabla pedidos:", pedido);
+      if (error) {
+        console.error("❌ Error creando pedido:", error.message);
+      } else {
+        console.log("✅ Pedido guardado en tabla pedidos:", pedido);
 
-    // 5. Insertar detalle de platos
-    await Promise.all(
-      platosDetallados.map(plato =>
-        supabase.from("pedido_detalle").insert([{
-          pedido_id: pedido.id,
-          plato_id: plato.plato_id,
-          nombre_plato: plato.nombre_plato,
-          precio: plato.precio,
-          cantidad: plato.cantidad
-        }])
-      )
-    );
-    console.log("✅ Platos guardados en pedido_detalle");
-  }
+        // 5. Insertar detalle de platos
+        await Promise.all(
+          platosDetallados.map((plato) =>
+            supabase.from("pedido_detalle").insert([
+              {
+                pedido_id: pedido.id,
+                plato_id: plato.plato_id,
+                nombre_plato: plato.nombre_plato,
+                precio: plato.precio,
+                cantidad: plato.cantidad,
+              },
+            ]),
+          ),
+        );
+        console.log("✅ Platos guardados en pedido_detalle");
+      }
 
-  // 6. Confirmación al cliente con desglose
-  await enviarWhatsApp(
-    telefono,
-    `✅ Pedido confirmado!\n` +
-    `Nombre: ${conv.nombre}\n` +
-    `Dirección: ${conv.direccion}\n` +
-    `Barrio: ${conv.barrio}\n` +
-    `Platos:\n${platosDetallados.map(p => `- ${p.nombre_plato} x${p.cantidad} $${p.precio}`).join("\n")}\n` +
-    `Observación: ${mensaje}\n\n` +
-    `Subtotal: $${subtotal}\n` +
-    `Domicilio: $${domicilio}\n` +
-    `Total: $${total}`
-  );
+      // 6. Confirmación al cliente con desglose
+      await enviarWhatsApp(
+        telefono,
+        `✅ Pedido confirmado!\n` +
+          `Nombre: ${conv.nombre}\n` +
+          `Dirección: ${conv.direccion}\n` +
+          `Barrio: ${conv.barrio}\n` +
+          `Platos:\n${platosDetallados.map((p) => `- ${p.nombre_plato} x${p.cantidad} $${p.precio}`).join("\n")}\n` +
+          `Observación: ${mensaje}\n\n` +
+          `Subtotal: $${subtotal}\n` +
+          `Domicilio: $${domicilio}\n` +
+          `Total: $${total}`,
+      );
 
-  break;
-
+      break;
   }
 
   res.sendStatus(200);
