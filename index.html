@@ -227,7 +227,7 @@
   const domicilio = parseInt(document.getElementById("domicilio").value);
   const observacion = document.getElementById("observacion").value.trim();
 
-if (!nombre || !direccion || !telefono || !barrio || platosSeleccionados.length === 0) {
+if (!nombre || !direccion || !telefono || !barrioSelect || platosSeleccionados.length === 0) {
   alert("Por favor completa todos los campos obligatorios: Nombre, Barrio, Dirección, Teléfono y al menos un plato.");
   return;
 }
