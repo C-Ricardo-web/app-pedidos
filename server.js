@@ -12,7 +12,7 @@ app.use(express.static(path.join(__dirname)));
 // Conexión a Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
+  process.env.SUPABASE_SECRET_KEY,
 );
 
 // Rutas para tus páginas
@@ -199,19 +199,28 @@ app.get("/webhook", (req, res) => {
 });
 
 // Funciones auxiliares para extraer texto y número del JSON de Meta
+// Funciones auxiliares
 function obtenerTexto(body) {
-  return body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body || "";
+  return (
+    body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body || null
+  );
 }
 
 function obtenerNumero(body) {
-  // Normalizar: quitar "+" si viene en el número
-  return (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || "").replace("+", "");
+  const num = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+  return num ? num.replace("+", "") : null;
 }
 
-// Webhook para recibir mensajes entrantes y manejar flujo conversacional
+// Webhook
 app.post("/webhook", async (req, res) => {
   const mensaje = obtenerTexto(req.body);
   const telefono = obtenerNumero(req.body);
+
+  // Validar que haya número y texto
+  if (!telefono || !mensaje) {
+    console.log("ℹ️ Evento ignorado: sin número o sin texto");
+    return res.sendStatus(200);
+  }
 
   console.log("➡️ Mensaje entrante:", mensaje);
   console.log("➡️ Número entrante:", telefono);
@@ -223,8 +232,8 @@ app.post("/webhook", async (req, res) => {
     .eq("telefono", telefono)
     .maybeSingle();
 
-  console.log("📂 Conversación encontrada:", conv);
   if (error) console.error("❌ Error buscando conversación:", error.message);
+  console.log("📂 Conversación encontrada:", conv);
 
   if (!conv) {
     // Crear nueva conversación
@@ -243,13 +252,13 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
+  // Flujo conversacional
   switch (conv.estado) {
     case "nombre":
       await supabase
         .from("conversaciones")
         .update({ nombre: mensaje, estado: "direccion" })
         .eq("id", conv.id);
-
       console.log("📌 Estado cambiado a: direccion");
       await enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
       break;
@@ -259,9 +268,11 @@ app.post("/webhook", async (req, res) => {
         .from("conversaciones")
         .update({ direccion: mensaje, estado: "barrio" })
         .eq("id", conv.id);
-
       console.log("📌 Estado cambiado a: barrio");
-      await enviarWhatsApp(telefono, "¿En qué barrio estás? (ej. La Castellana)");
+      await enviarWhatsApp(
+        telefono,
+        "¿En qué barrio estás? (ej. La Castellana)",
+      );
       break;
 
     case "barrio":
@@ -269,11 +280,10 @@ app.post("/webhook", async (req, res) => {
         .from("conversaciones")
         .update({ barrio: mensaje, estado: "platos" })
         .eq("id", conv.id);
-
       console.log("📌 Estado cambiado a: platos");
       await enviarWhatsApp(
         telefono,
-        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)"
+        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)",
       );
       break;
 
@@ -285,7 +295,6 @@ app.post("/webhook", async (req, res) => {
           estado: "confirmacion",
         })
         .eq("id", conv.id);
-
       console.log("📌 Estado cambiado a: confirmacion");
       await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
       break;
@@ -295,22 +304,17 @@ app.post("/webhook", async (req, res) => {
         .from("conversaciones")
         .update({ observacion: mensaje, estado: "finalizado" })
         .eq("id", conv.id);
-
       console.log("📌 Estado cambiado a: finalizado");
-
-      // Crear pedido real en tablas pedidos + pedido_detalle
       await crearPedidoDesdeConversacion(conv);
-
       await enviarWhatsApp(
         telefono,
-        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${conv.platos.join(", ")}\nTotal calculado en sistema.`
+        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${conv.platos?.join(", ")}\nObservación: ${mensaje}`,
       );
       break;
   }
 
   res.sendStatus(200);
 });
-
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
