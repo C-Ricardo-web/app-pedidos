@@ -281,39 +281,55 @@ app.post("/webhook", async (req, res) => {
       await enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
       break;
 
-    case "direccion":
-      await supabase
-        .from("conversaciones")
-        .update({ direccion: mensaje, estado: "barrio" })
-        .eq("id", conv.id);
-      console.log("📌 Estado cambiado a: barrio");
-      await enviarWhatsApp(
-        telefono,
-        "¿En qué barrio estás? (ej. La Castellana)",
-      );
-      break;
+case "direccion":
+  await supabase
+    .from("conversaciones")
+    .update({ direccion: mensaje, estado: "barrio" })
+    .eq("id", conv.id);
+  console.log("📌 Estado cambiado a: barrio");
+  await enviarWhatsApp(
+    telefono,
+    "¿En qué barrio estás? (ej. La Castellana)"
+  );
+  break;
 
-    case "barrio":
-      await supabase
-        .from("conversaciones")
-        .update({ barrio: mensaje, estado: "platos" })
-        .eq("id", conv.id);
-      console.log("📌 Estado cambiado a: platos");
-      await enviarWhatsApp(
-        telefono,
-        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)",
-      );
-      break;
+case "barrio":
+  await supabase
+    .from("conversaciones")
+    .update({ barrio: mensaje, estado: "platos" })
+    .eq("id", conv.id);
+  console.log("📌 Estado cambiado a: platos");
 
-case "platos":
   // Obtener menú disponible
   const { data: menu, error: menuError } = await supabase
     .from("menu")
-    .select("id, nombre_plato, precio")
+    .select("nombre_plato, precio")
     .eq("disponible", true);
 
   if (menuError) {
     console.error("❌ Error cargando menú:", menuError.message);
+    await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
+    return res.sendStatus(200);
+  }
+
+  const listaPlatos = menu.map(p => `${p.nombre_plato} ($${p.precio})`).join("\n");
+
+  await enviarWhatsApp(
+    telefono,
+    "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)\n\nMenú disponible:\n" +
+    listaPlatos
+  );
+  break;
+
+case "platos":
+  // Obtener menú disponible
+  const { data: menuPlatos, error: menuError2 } = await supabase
+    .from("menu")
+    .select("id, nombre_plato, precio")
+    .eq("disponible", true);
+
+  if (menuError2) {
+    console.error("❌ Error cargando menú:", menuError2.message);
     await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
     return res.sendStatus(200);
   }
@@ -334,7 +350,7 @@ case "platos":
 
     // Buscar coincidencia en menú
     const nombreNormalizado = nombrePlato.trim().toLowerCase();
-    const platoData = menu.find(
+    const platoData = menuPlatos.find(
       p => p.nombre_plato.toLowerCase().includes(nombreNormalizado)
     );
 
@@ -355,7 +371,7 @@ case "platos":
     await enviarWhatsApp(
       telefono,
       "No entendí los platos que pediste. Por favor escribe el nombre tal como aparece en el menú:\n" +
-      menu.map(p => `${p.nombre_plato} ($${p.precio})`).join("\n")
+      menuPlatos.map(p => `${p.nombre_plato} ($${p.precio})`).join("\n")
     );
     return res.sendStatus(200); // detener flujo
   }
@@ -369,6 +385,7 @@ case "platos":
   console.log("📌 Estado cambiado a: confirmacion");
   await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
   break;
+
 
 
     case "confirmacion":
