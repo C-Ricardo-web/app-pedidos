@@ -420,10 +420,18 @@ app.post("/webhook", async (req, res) => {
       }
 
       // 6. Confirmación al cliente
-      await enviarWhatsApp(
-        telefono,
-        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${platosDetallados.map((p) => p.nombre_plato).join(", ")}\nObservación: ${mensaje}\nTotal: $${total}`,
-      );
+await enviarWhatsApp(
+  telefono,
+  `✅ Pedido confirmado!\n` +
+  `Cliente: ${conv.nombre}\n` +
+  `Dirección: ${conv.direccion}\n` +
+  `Barrio: ${conv.barrio}\n` +
+  `Platos: ${platosDetallados.map((p) => p.nombre_plato).join(", ")}\n` +
+  `Obs: ${mensaje || "Ninguna"}\n` +
+  `Subtotal: $${subtotal} | Domicilio: $${domicilio}\n` +
+  `TOTAL: $${total}`
+);
+
 
       break;
   }
