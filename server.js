@@ -305,17 +305,71 @@ app.post("/webhook", async (req, res) => {
       );
       break;
 
-    case "platos":
-      await supabase
-        .from("conversaciones")
-        .update({
-          platos: mensaje.split(",").map((p) => p.trim()),
-          estado: "confirmacion",
-        })
-        .eq("id", conv.id);
-      console.log("📌 Estado cambiado a: confirmacion");
-      await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
-      break;
+case "platos":
+  // Obtener menú disponible
+  const { data: menu, error: menuError } = await supabase
+    .from("menu")
+    .select("id, nombre_plato, precio")
+    .eq("disponible", true);
+
+  if (menuError) {
+    console.error("❌ Error cargando menú:", menuError.message);
+    await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
+    return res.sendStatus(200);
+  }
+
+  // Parsear mensaje del cliente
+  const items = mensaje.split(",").map(p => p.trim());
+  const platos = [];
+
+  for (const item of items) {
+    const match = item.match(/^(\d+)\s+(.*)$/); // ej. "4 arepa rellena"
+    let cantidad = 1;
+    let nombrePlato = item;
+
+    if (match) {
+      cantidad = parseInt(match[1], 10);
+      nombrePlato = match[2];
+    }
+
+    // Buscar coincidencia en menú
+    const nombreNormalizado = nombrePlato.trim().toLowerCase();
+    const platoData = menu.find(
+      p => p.nombre_plato.toLowerCase().includes(nombreNormalizado)
+    );
+
+    if (platoData) {
+      platos.push({
+        plato_id: platoData.id,
+        nombre_plato: platoData.nombre_plato,
+        precio: platoData.precio,
+        cantidad,
+      });
+    } else {
+      console.warn(`⚠️ Plato no reconocido: "${item}"`);
+    }
+  }
+
+  // Validar que haya al menos un plato válido
+  if (platos.length === 0) {
+    await enviarWhatsApp(
+      telefono,
+      "No entendí los platos que pediste. Por favor escribe el nombre tal como aparece en el menú:\n" +
+      menu.map(p => `${p.nombre_plato} ($${p.precio})`).join("\n")
+    );
+    return res.sendStatus(200); // detener flujo
+  }
+
+  // Guardar platos en conversación y avanzar
+  await supabase
+    .from("conversaciones")
+    .update({ platos, estado: "confirmacion" })
+    .eq("id", conv.id);
+
+  console.log("📌 Estado cambiado a: confirmacion");
+  await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
+  break;
+
 
     case "confirmacion":
       // Actualizar conversación a finalizado
