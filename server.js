@@ -317,143 +317,167 @@ app.post("/webhook", async (req, res) => {
       await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
       break;
 
-case "confirmacion":
-  try {
-    // Actualizar conversación a finalizado
-    await supabase
-      .from("conversaciones")
-      .update({ observacion: mensaje, estado: "finalizado" })
-      .eq("id", conv.id);
+    case "confirmacion":
+      try {
+        // Actualizar conversación a finalizado
+        await supabase
+          .from("conversaciones")
+          .update({ observacion: mensaje, estado: "finalizado" })
+          .eq("id", conv.id);
 
-    console.log("📌 Estado cambiado a: finalizado");
+        console.log("📌 Estado cambiado a: finalizado");
 
-    // 1. Obtener todos los barrios y buscar coincidencia aproximada
-    const { data: barriosData = [], error: barriosError } = await supabase
-      .from("barrios")
-      .select("nombre_barrio, precio_domicilio");
+        // 1. Obtener todos los barrios y buscar coincidencia aproximada
+        const { data: barriosData = [], error: barriosError } = await supabase
+          .from("barrios")
+          .select("nombre_barrio, precio_domicilio");
 
-    if (barriosError) console.warn("⚠️ Error al obtener barrios:", barriosError.message);
+        if (barriosError)
+          console.warn("⚠️ Error al obtener barrios:", barriosError.message);
 
-    const barrioCliente = (conv.barrio || "").trim().toLowerCase();
-    const barrioMatch = barriosData.find(b =>
-      (b.nombre_barrio || "").toLowerCase().includes(barrioCliente)
-    );
+        const barrioCliente = (conv.barrio || "").trim().toLowerCase();
+        const barrioMatch = barriosData.find((b) =>
+          (b.nombre_barrio || "").toLowerCase().includes(barrioCliente),
+        );
 
-    const domicilio = barrioMatch?.precio_domicilio || 0;
-    if (!barrioMatch) {
-      console.warn(`⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`);
-    } else {
-      console.log(`✅ Barrio reconocido: "${barrioMatch.nombre_barrio}" -> $${domicilio}`);
-    }
-
-    // 2. Obtener todos los platos y buscar coincidencia aproximada
-    const { data: menuData = [], error: menuError } = await supabase
-      .from("platos")
-      .select("id, nombre_plato, precio");
-
-    if (menuError) console.warn("⚠️ Error al obtener platos:", menuError.message);
-
-    const platosCliente = Array.isArray(conv.platos) ? conv.platos : [];
-    const platosDetallados = platosCliente.map(nombre => {
-      const nombreCliente = (nombre || "").toLowerCase();
-      const match = menuData.find(p =>
-        (p.nombre_plato || "").toLowerCase().includes(nombreCliente)
-      );
-      if (!match) {
-        console.warn(`⚠️ Plato no reconocido: "${nombre}". Se guardará con precio 0`);
-      } else {
-        console.log(`✅ Plato reconocido: "${match.nombre_plato}" -> $${match.precio}`);
-      }
-      return {
-        plato_id: match?.id || null,
-        nombre_plato: match?.nombre_plato || nombre,
-        precio: match?.precio || 0,
-        cantidad: 1
-      };
-    });
-
-    // 3. Calcular subtotal y total
-    const subtotal = platosDetallados.reduce((acc, p) => acc + (p.precio * p.cantidad), 0);
-    const total = subtotal + domicilio;
-
-    // 4. Insertar pedido
-    const { data: pedido, error: pedidoError } = await supabase
-      .from("pedidos")
-      .insert([{
-        nombre: conv.nombre,
-        direccion: conv.direccion,
-        telefono: conv.telefono,
-        domicilio,
-        subtotal,
-        total,
-        estado: "pendiente",
-        barrio: conv.barrio,
-        observacion: mensaje,
-        created_at: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (pedidoError) {
-      console.error("❌ Error creando pedido:", pedidoError.message);
-      // opcional: notificar al admin o al cliente
-      await enviarWhatsApp(telefono, `❌ Ocurrió un error al crear tu pedido. Intenta de nuevo.`);
-      break;
-    }
-
-    console.log("✅ Pedido guardado en tabla pedidos:", pedido);
-
-    // 5. Insertar detalle de platos (si hay platos)
-    if (platosDetallados.length > 0) {
-      const inserts = platosDetallados.map(plato =>
-        supabase.from("pedido_detalle").insert([{
-          pedido_id: pedido.id,
-          plato_id: plato.plato_id,
-          nombre_plato: plato.nombre_plato,
-          precio: plato.precio,
-          cantidad: plato.cantidad
-        }])
-      );
-
-      // Ejecutar inserciones y capturar errores por si alguno falla
-      const results = await Promise.all(inserts);
-      results.forEach((r, i) => {
-        if (r.error) {
-          console.error(`❌ Error insertando detalle (plato ${i}):`, r.error.message);
+        const domicilio = barrioMatch?.precio_domicilio || 0;
+        if (!barrioMatch) {
+          console.warn(
+            `⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`,
+          );
+        } else {
+          console.log(
+            `✅ Barrio reconocido: "${barrioMatch.nombre_barrio}" -> $${domicilio}`,
+          );
         }
-      });
 
-      console.log("✅ Intento de guardado en pedido_detalle completado");
-    } else {
-      console.log("ℹ️ No hay platos para insertar en pedido_detalle");
-    }
+        // 2. Obtener todos los platos y buscar coincidencia aproximada
+        const { data: menuData = [], error: menuError } = await supabase
+          .from("platos")
+          .select("id, nombre_plato, precio");
 
-    // 6. Confirmación al cliente con desglose
-    await enviarWhatsApp(
-      telefono,
-      `✅ Pedido confirmado!\n` +
-      `Nombre: ${conv.nombre}\n` +
-      `Dirección: ${conv.direccion}\n` +
-      `Barrio: ${conv.barrio}\n` +
-      `Platos:\n${platosDetallados.map(p => `- ${p.nombre_plato} x${p.cantidad} $${p.precio}`).join("\n")}\n` +
-      `Observación: ${mensaje || "-"}\n\n` +
-      `Subtotal: $${subtotal}\n` +
-      `Domicilio: $${domicilio}\n` +
-      `Total: $${total}`
-    );
+        if (menuError)
+          console.warn("⚠️ Error al obtener platos:", menuError.message);
 
-  } catch (err) {
-    console.error("❌ Error en case 'confirmacion':", err);
-    // No dejar que el proceso se caiga; notificar al cliente si quieres
-    try {
-      await enviarWhatsApp(telefono, `❌ Ocurrió un error procesando tu pedido. Por favor intenta de nuevo.`);
-    } catch (e) {
-      console.error("❌ Error enviando notificación de fallo:", e);
-    }
-  }
+        const platosCliente = Array.isArray(conv.platos) ? conv.platos : [];
+        const platosDetallados = platosCliente.map((nombre) => {
+          const nombreCliente = (nombre || "").toLowerCase();
+          const match = menuData.find((p) =>
+            (p.nombre_plato || "").toLowerCase().includes(nombreCliente),
+          );
+          if (!match) {
+            console.warn(
+              `⚠️ Plato no reconocido: "${nombre}". Se guardará con precio 0`,
+            );
+          } else {
+            console.log(
+              `✅ Plato reconocido: "${match.nombre_plato}" -> $${match.precio}`,
+            );
+          }
+          return {
+            plato_id: match?.id || null,
+            nombre_plato: match?.nombre_plato || nombre,
+            precio: match?.precio || 0,
+            cantidad: 1,
+          };
+        });
 
-  break;
+        // 3. Calcular subtotal y total
+        const subtotal = platosDetallados.reduce(
+          (acc, p) => acc + p.precio * p.cantidad,
+          0,
+        );
+        const total = subtotal + domicilio;
 
+        // 4. Insertar pedido
+        const { data: pedido, error: pedidoError } = await supabase
+          .from("pedidos")
+          .insert([
+            {
+              nombre: conv.nombre,
+              direccion: conv.direccion,
+              telefono: conv.telefono,
+              domicilio,
+              subtotal,
+              total,
+              estado: "pendiente",
+              barrio: conv.barrio,
+              observacion: mensaje,
+              created_at: new Date().toISOString(),
+            },
+          ])
+          .select()
+          .single();
+
+        if (pedidoError) {
+          console.error("❌ Error creando pedido:", pedidoError.message);
+          // opcional: notificar al admin o al cliente
+          await enviarWhatsApp(
+            telefono,
+            `❌ Ocurrió un error al crear tu pedido. Intenta de nuevo.`,
+          );
+          break;
+        }
+
+        console.log("✅ Pedido guardado en tabla pedidos:", pedido);
+
+        // 5. Insertar detalle de platos (si hay platos)
+        if (platosDetallados.length > 0) {
+          const inserts = platosDetallados.map((plato) =>
+            supabase.from("pedido_detalle").insert([
+              {
+                pedido_id: pedido.id,
+                plato_id: plato.plato_id,
+                nombre_plato: plato.nombre_plato,
+                precio: plato.precio,
+                cantidad: plato.cantidad,
+              },
+            ]),
+          );
+
+          // Ejecutar inserciones y capturar errores por si alguno falla
+          const results = await Promise.all(inserts);
+          results.forEach((r, i) => {
+            if (r.error) {
+              console.error(
+                `❌ Error insertando detalle (plato ${i}):`,
+                r.error.message,
+              );
+            }
+          });
+
+          console.log("✅ Intento de guardado en pedido_detalle completado");
+        } else {
+          console.log("ℹ️ No hay platos para insertar en pedido_detalle");
+        }
+
+        // 6. Confirmación al cliente con desglose
+        await enviarWhatsApp(
+          telefono,
+          `✅ Pedido confirmado!\n` +
+            `Nombre: ${conv.nombre}\n` +
+            `Dirección: ${conv.direccion}\n` +
+            `Barrio: ${conv.barrio}\n` +
+            `Platos:\n${platosDetallados.map((p) => `- ${p.nombre_plato} x${p.cantidad} $${p.precio}`).join("\n")}\n` +
+            `Observación: ${mensaje || "-"}\n\n` +
+            `Subtotal: $${subtotal}\n` +
+            `Domicilio: $${domicilio}\n` +
+            `Total: $${total}`,
+        );
+      } catch (err) {
+        console.error("❌ Error en case 'confirmacion':", err);
+        // No dejar que el proceso se caiga; notificar al cliente si quieres
+        try {
+          await enviarWhatsApp(
+            telefono,
+            `❌ Ocurrió un error procesando tu pedido. Por favor intenta de nuevo.`,
+          );
+        } catch (e) {
+          console.error("❌ Error enviando notificación de fallo:", e);
+        }
+      }
+
+      break;
   }
 
   res.sendStatus(200);
