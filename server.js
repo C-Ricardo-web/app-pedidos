@@ -407,10 +407,18 @@ app.post("/webhook", async (req, res) => {
         console.log("✅ Platos guardados en pedido_detalle");
       }
 
-      // 6. Confirmación al cliente
+      // 6. Confirmación al cliente con desglose
       await enviarWhatsApp(
         telefono,
-        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${platosDetallados.map((p) => p.nombre_plato).join(", ")}\nObservación: ${mensaje}\nTotal: $${total}`,
+        `✅ Pedido confirmado!\n` +
+          `Nombre: ${conv.nombre}\n` +
+          `Dirección: ${conv.direccion}\n` +
+          `Barrio: ${conv.barrio}\n` +
+          `Platos:\n${platosDetallados.map((p) => `- ${p.nombre_plato} $${p.precio}`).join("\n")}\n` +
+          `Observación: ${mensaje}\n\n` +
+          `Subtotal: $${subtotal}\n` +
+          `Domicilio: $${domicilio}\n` +
+          `Total: $${total}`,
       );
 
       break;
