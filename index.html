@@ -227,10 +227,11 @@
   const domicilio = parseInt(document.getElementById("domicilio").value);
   const observacion = document.getElementById("observacion").value.trim();
 
-  if (!nombre || !direccion || !telefono || !barrio || platosSeleccionados.length === 0) {
-    alert("Por favor completa todos los campos y agrega al menos un plato.");
-    return;
-  }
+if (!nombre || !direccion || !telefono || !barrio || platosSeleccionados.length === 0) {
+  alert("Por favor completa todos los campos obligatorios: Nombre, Barrio, Dirección, Teléfono y al menos un plato.");
+  return;
+}
+
 
   const subtotal = platosSeleccionados.reduce((acc, p) => acc + p.precio, 0);
   const total = subtotal + domicilio;

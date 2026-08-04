@@ -58,10 +58,15 @@ app.post('/pedido', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
-  // 4. Insertar detalle de platos
-  for (const plato of platos) {
-    await supabase.from('pedido_detalle').insert([{ pedido_id: pedido.id, nombre_plato: plato.nombre_plato, precio: plato.precio }]);
-  }
+// 4. Insertar detalle de platos
+await Promise.all(platos.map(plato =>
+  supabase.from('pedido_detalle').insert([{ 
+    pedido_id: pedido.id, 
+    nombre_plato: plato.nombre_plato, 
+    precio: plato.precio 
+  }])
+));
+
 
   // 5. Enviar confirmación al cliente por WhatsApp
   await enviarWhatsApp(telefono, `Hola ${nombre}, tu pedido fue recibido.\nTotal: $${total}\nEstado: pendiente.`);
