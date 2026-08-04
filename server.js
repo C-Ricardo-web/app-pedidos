@@ -396,33 +396,37 @@ case "platos":
       }
 
       // 2. Obtener info de platos desde tabla menu
-      const platosDetallados = [];
-      for (const nombre of conv.platos) {
-        const nombreNormalizado = nombre.trim().toLowerCase();
-        const { data: platoData } = await supabase
-          .from("menu")
-          .select("id, nombre_plato, precio")
-          .ilike("nombre_plato", `%${nombreNormalizado}%`)
-          .maybeSingle();
+const platosDetallados = [];
+for (const plato of conv.platos) {
+  // Normalizar nombre
+  const nombreNormalizado = plato.nombre_plato.trim().toLowerCase();
 
-        if (platoData) {
-          platosDetallados.push({
-            plato_id: platoData.id,
-            nombre_plato: platoData.nombre_plato,
-            precio: platoData.precio,
-            cantidad: 1,
-          });
-        } else {
-          // Si no se encuentra, registrar como texto libre
-          platosDetallados.push({
-            plato_id: null,
-            nombre_plato: nombre,
-            precio: 0,
-            cantidad: 1,
-          });
-          console.warn(`⚠️ Plato no reconocido: "${nombre}"`);
-        }
-      }
+  // Buscar coincidencia en tabla menu
+  const { data: platoData } = await supabase
+    .from("menu")
+    .select("id, nombre_plato, precio")
+    .ilike("nombre_plato", `%${nombreNormalizado}%`)
+    .maybeSingle();
+
+  if (platoData) {
+    platosDetallados.push({
+      plato_id: platoData.id,
+      nombre_plato: platoData.nombre_plato,
+      precio: platoData.precio,
+      cantidad: plato.cantidad || 1, // usar cantidad que ya guardaste
+    });
+  } else {
+    // Si no se encuentra, conservar lo que el cliente escribió
+    platosDetallados.push({
+      plato_id: plato.plato_id || null,
+      nombre_plato: plato.nombre_plato,
+      precio: plato.precio || 0,
+      cantidad: plato.cantidad || 1,
+    });
+    console.warn(`⚠️ Plato no reconocido: "${plato.nombre_plato}"`);
+  }
+}
+
 
       // 3. Calcular subtotal y total
       const subtotal = platosDetallados.reduce(
