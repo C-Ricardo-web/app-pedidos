@@ -114,6 +114,72 @@ async function enviarWhatsApp(numero, texto) {
   );
 }
 
+async function crearPedidoDesdeConversacion(conv) {
+  const { nombre, direccion, telefono, barrio, platos, observacion } = conv;
+
+  // 1. Obtener costo de domicilio desde Supabase
+  const { data: barrioData, error: barrioError } = await supabase
+    .from("barrios")
+    .select("precio_domicilio")
+    .eq("nombre_barrio", barrio)
+    .single();
+
+  if (barrioError) {
+    console.error("Error obteniendo barrio:", barrioError.message);
+    return;
+  }
+
+  const domicilio = barrioData?.precio_domicilio || 0;
+
+  // 2. Calcular subtotal y total en servidor
+  const subtotal = (platos || []).reduce((acc, p) => acc + (p.precio || 0), 0);
+  const total = subtotal + domicilio;
+
+  // 3. Insertar pedido en tabla pedidos
+  const { data: pedido, error: pedidoError } = await supabase
+    .from("pedidos")
+    .insert([
+      {
+        nombre,
+        direccion,
+        telefono,
+        domicilio,
+        subtotal,
+        total,
+        estado: "pendiente",
+        barrio,
+        observacion,
+      },
+    ])
+    .select()
+    .single();
+
+  if (pedidoError) {
+    console.error("Error creando pedido:", pedidoError.message);
+    return;
+  }
+
+  // 4. Insertar detalle de platos
+  await Promise.all(
+    (platos || []).map((plato) =>
+      supabase.from("pedido_detalle").insert([
+        {
+          pedido_id: pedido.id,
+          nombre_plato: plato.nombre_plato || plato,
+          precio: plato.precio || 0,
+          cantidad: plato.cantidad || 1,
+        },
+      ]),
+    ),
+  );
+
+  // 5. Enviar confirmación al cliente por WhatsApp
+  await enviarWhatsApp(
+    telefono,
+    `Hola ${nombre}, tu pedido fue recibido.\nTotal: $${total}\nEstado: pendiente.`,
+  );
+}
+
 // Webhook de verificación
 app.get("/webhook", (req, res) => {
   const VERIFY_TOKEN = "pedidos123"; // igual en Meta Developers
@@ -133,11 +199,89 @@ app.get("/webhook", (req, res) => {
 });
 
 // Webhook para recibir mensajes entrantes
-app.post("/webhook", (req, res) => {
-  const body = req.body;
-  console.log("Mensaje entrante:", JSON.stringify(body, null, 2));
+app.post("/webhook", async (req, res) => {
+  const mensaje = obtenerTexto(req.body); // texto entrante
+  const telefono = obtenerNumero(req.body); // número del cliente
 
-  // Aquí puedes procesar el mensaje recibido
+  // Buscar conversación activa
+  let { data: conv } = await supabase
+    .from("conversaciones")
+    .select("*")
+    .eq("telefono", telefono)
+    .single();
+
+  if (!conv) {
+    // Crear nueva conversación
+    conv = await supabase
+      .from("conversaciones")
+      .insert([
+        {
+          telefono,
+          estado: "nombre",
+        },
+      ])
+      .select()
+      .single();
+
+    enviarWhatsApp(telefono, "Hola 👋, ¿cuál es tu nombre?");
+    return res.sendStatus(200);
+  }
+
+  switch (conv.estado) {
+    case "nombre":
+      await supabase
+        .from("conversaciones")
+        .update({ nombre: mensaje, estado: "direccion" })
+        .eq("id", conv.id);
+      enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
+      break;
+
+    case "direccion":
+      await supabase
+        .from("conversaciones")
+        .update({ direccion: mensaje, estado: "barrio" })
+        .eq("id", conv.id);
+      enviarWhatsApp(telefono, "¿En qué barrio estás? (ej. La Castellana)");
+      break;
+
+    case "barrio":
+      await supabase
+        .from("conversaciones")
+        .update({ barrio: mensaje, estado: "platos" })
+        .eq("id", conv.id);
+      enviarWhatsApp(
+        telefono,
+        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)",
+      );
+      break;
+
+    case "platos":
+      await supabase
+        .from("conversaciones")
+        .update({
+          platos: mensaje.split(",").map((p) => p.trim()),
+          estado: "confirmacion",
+        })
+        .eq("id", conv.id);
+      enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
+      break;
+
+    case "confirmacion":
+      await supabase
+        .from("conversaciones")
+        .update({ observacion: mensaje, estado: "finalizado" })
+        .eq("id", conv.id);
+
+      // Crear pedido real en tablas pedidos + pedido_detalle
+      await crearPedidoDesdeConversacion(conv);
+
+      enviarWhatsApp(
+        telefono,
+        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${conv.platos.join(", ")}\nTotal calculado en sistema.`,
+      );
+      break;
+  }
+
   res.sendStatus(200);
 });
 
