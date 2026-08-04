@@ -209,7 +209,7 @@ function obtenerNumero(body) {
 
 // Webhook para recibir mensajes entrantes y manejar flujo conversacional
 app.post("/webhook", async (req, res) => {
-  const mensaje = obtenerTexto(req.body); // texto entrante
+  const mensaje = obtenerTexto(req.body);   // texto entrante
   const telefono = obtenerNumero(req.body); // número del cliente
 
   // Buscar conversación activa
@@ -237,6 +237,10 @@ app.post("/webhook", async (req, res) => {
         .from("conversaciones")
         .update({ nombre: mensaje, estado: "direccion" })
         .eq("id", conv.id);
+
+      // refrescar conv
+      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
+
       await enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
       break;
 
@@ -245,10 +249,10 @@ app.post("/webhook", async (req, res) => {
         .from("conversaciones")
         .update({ direccion: mensaje, estado: "barrio" })
         .eq("id", conv.id);
-      await enviarWhatsApp(
-        telefono,
-        "¿En qué barrio estás? (ej. La Castellana)",
-      );
+
+      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
+
+      await enviarWhatsApp(telefono, "¿En qué barrio estás? (ej. La Castellana)");
       break;
 
     case "barrio":
@@ -256,9 +260,12 @@ app.post("/webhook", async (req, res) => {
         .from("conversaciones")
         .update({ barrio: mensaje, estado: "platos" })
         .eq("id", conv.id);
+
+      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
+
       await enviarWhatsApp(
         telefono,
-        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)",
+        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)"
       );
       break;
 
@@ -270,6 +277,9 @@ app.post("/webhook", async (req, res) => {
           estado: "confirmacion",
         })
         .eq("id", conv.id);
+
+      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
+
       await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
       break;
 
@@ -279,12 +289,14 @@ app.post("/webhook", async (req, res) => {
         .update({ observacion: mensaje, estado: "finalizado" })
         .eq("id", conv.id);
 
+      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
+
       // Crear pedido real en tablas pedidos + pedido_detalle
       await crearPedidoDesdeConversacion(conv);
 
       await enviarWhatsApp(
         telefono,
-        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${conv.platos.join(", ")}\nTotal calculado en sistema.`,
+        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${conv.platos.join(", ")}\nTotal calculado en sistema.`
       );
       break;
   }
