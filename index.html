@@ -218,74 +218,85 @@
         renderPlatos();
       }
 
-async function crearPedido() {
-  const nombre = document.getElementById("nombre").value.trim();
-  const barrioSelect = document.getElementById("barrio");
-  const barrioValue = barrioSelect.value;
-  const barrioNombre = barrioSelect.options[barrioSelect.selectedIndex].text;
-  const direccion = document.getElementById("direccion").value.trim();
-  const telefono = document.getElementById("telefono").value.trim();
-  const domicilio = parseInt(document.getElementById("domicilio").value) || 0;
-  const observacion = document.getElementById("observacion").value.trim();
+      async function crearPedido() {
+        const nombre = document.getElementById("nombre").value.trim();
+        const barrioSelect = document.getElementById("barrio");
+        const barrioValue = barrioSelect.value;
+        const barrioNombre =
+          barrioSelect.options[barrioSelect.selectedIndex].text;
+        const direccion = document.getElementById("direccion").value.trim();
+        const telefono = document.getElementById("telefono").value.trim();
+        const domicilio =
+          parseInt(document.getElementById("domicilio").value) || 0;
+        const observacion = document.getElementById("observacion").value.trim();
 
-  // Validación clara
-  if (!nombre || !direccion || !telefono || !barrioValue || platosSeleccionados.length === 0) {
-    alert("Por favor completa Nombre, Barrio, Dirección, Teléfono y al menos un plato.");
-    return;
-  }
+        // Validación clara
+        if (
+          !nombre ||
+          !direccion ||
+          !telefono ||
+          !barrioValue ||
+          platosSeleccionados.length === 0
+        ) {
+          alert(
+            "Por favor completa Nombre, Barrio, Dirección, Teléfono y al menos un plato.",
+          );
+          return;
+        }
 
-  const subtotal = platosSeleccionados.reduce((acc, p) => acc + p.precio, 0);
-  const total = subtotal + domicilio;
+        const subtotal = platosSeleccionados.reduce(
+          (acc, p) => acc + p.precio,
+          0,
+        );
+        const total = subtotal + domicilio;
 
-  try {
-    const response = await fetch("/pedido", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nombre,
-        direccion,
-        telefono,
-        domicilio,
-        subtotal,
-        total,
-        estado: "pendiente",
-        barrio: barrioNombre,
-        observacion,
-        platos: platosSeleccionados.map(p => ({
-          plato_id: p.id,
-          nombre_plato: p.nombre_plato,
-          precio: p.precio,
-          cantidad: 1
-        }))
-      })
-    });
+        try {
+          const response = await fetch("/pedido", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre,
+              direccion,
+              telefono,
+              domicilio,
+              subtotal,
+              total,
+              estado: "pendiente",
+              barrio: barrioNombre,
+              observacion,
+              platos: platosSeleccionados.map((p) => ({
+                plato_id: p.id,
+                nombre_plato: p.nombre_plato,
+                precio: p.precio,
+                cantidad: 1,
+              })),
+            }),
+          });
 
-    if (!response.ok) {
-      const text = await response.text();
-      alert("Error del servidor: " + text);
-      return;
-    }
+          if (!response.ok) {
+            const text = await response.text();
+            alert("Error del servidor: " + text);
+            return;
+          }
 
-    const data = await response.json();
-    alert("Pedido creado y notificado");
+          const data = await response.json();
+          alert("Pedido creado y notificado");
 
-    // Resetear formulario
-    document.getElementById("nombre").value = "";
-    document.getElementById("direccion").value = "";
-    document.getElementById("telefono").value = "";
-    document.getElementById("domicilio").value = "";
-    document.getElementById("observacion").value = "";
-    const barrioSelectTS = document.getElementById("barrio").tomselect;
-    if (barrioSelectTS) barrioSelectTS.clear();
-    platosSeleccionados = [];
-    renderPlatos();
-
-  } catch (err) {
-    console.error("Error creando pedido:", err);
-    alert("Error inesperado: " + err.message);
-  }
-}
-
+          // Resetear formulario
+          document.getElementById("nombre").value = "";
+          document.getElementById("direccion").value = "";
+          document.getElementById("telefono").value = "";
+          document.getElementById("domicilio").value = "";
+          document.getElementById("observacion").value = "";
+          const barrioSelectTS = document.getElementById("barrio").tomselect;
+          if (barrioSelectTS) barrioSelectTS.clear();
+          platosSeleccionados = [];
+          renderPlatos();
+        } catch (err) {
+          console.error("Error creando pedido:", err);
+          alert("Error inesperado: " + err.message);
+        }
+      }
 
       // Cargar barrios desde la tabla 'barrios' en Supabase
       async function cargarBarrios() {
@@ -375,17 +386,22 @@ async function crearPedido() {
 
       cargarPedidos();
 
+      // Función con debounce para evitar múltiples renders simultáneos
+      let reloadTimeout;
+      function safeReloadPedidos() {
+        clearTimeout(reloadTimeout);
+        reloadTimeout = setTimeout(() => cargarPedidos(), 200);
+      }
+
       // Suscripción en tiempo real a la tabla pedidos
       supabaseClient
         .channel("pedidos-channel")
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "pedidos" },
+          { event: "INSERT", schema: "public", table: "pedidos" },
           (payload) => {
             console.log("Cambio en pedidos:", payload);
-
-            // Vuelve a cargar la lista completa cada vez que hay cambios
-            cargarPedidos();
+            safeReloadPedidos();
           },
         )
         .subscribe();
@@ -395,12 +411,10 @@ async function crearPedido() {
         .channel("detalle-channel")
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "pedido_detalle" },
+          { event: "INSERT", schema: "public", table: "pedido_detalle" },
           (payload) => {
             console.log("Cambio en detalle:", payload);
-
-            // También refresca pedidos porque los platos cambian
-            cargarPedidos();
+            safeReloadPedidos();
           },
         )
         .subscribe();
