@@ -34,50 +34,63 @@ app.get('/domiciliario', (req, res) => {
 
 // Endpoint para crear pedido con columnas reales
 app.post('/pedido', async (req, res) => {
-  const {
-    nombre,
-    direccion,
-    telefono,
-    domicilio,
-    subtotal,
-    total,
-    estado,
-    barrio,
-    observacion
-  } = req.body;
+  const { nombre, direccion, telefono, barrio, observacion, platos } = req.body;
 
-  const { data, error } = await supabase
+  // 1. Obtener costo de domicilio desde Supabase
+  const { data: barrioData } = await supabase
+    .from('barrios')
+    .select('precio_domicilio')
+    .eq('nombre_barrio', barrio)
+    .single();
+
+  const domicilio = barrioData?.precio_domicilio || 0;
+
+  // 2. Calcular subtotal y total en servidor
+  const subtotal = platos.reduce((acc, p) => acc + p.precio, 0);
+  const total = subtotal + domicilio;
+
+  // 3. Insertar pedido
+  const { data: pedido, error } = await supabase
     .from('pedidos')
-    .insert([{
-      nombre,
-      direccion,
-      telefono,
-      domicilio,
-      subtotal,
-      total,
-      estado,
-      barrio,
-      observacion
-    }]);
+    .insert([{ nombre, direccion, telefono, domicilio, subtotal, total, estado: 'pendiente', barrio, observacion }])
+    .select()
+    .single();
 
-  if (error) {
-    console.error("Error Supabase:", error);
-    return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: error.message });
+
+  // 4. Insertar detalle de platos
+  for (const plato of platos) {
+    await supabase.from('pedido_detalle').insert([{ pedido_id: pedido.id, nombre_plato: plato.nombre_plato, precio: plato.precio }]);
   }
 
-  // WhatsApp: aquí puedes armar el texto con los campos que quieras
-  await enviarWhatsApp(
-    `Nuevo pedido de ${nombre} (${barrio})\n` +
-    `Dirección: ${direccion}\nTel: ${telefono}\nTotal: $${total}`
-  );
+  // 5. Enviar confirmación al cliente por WhatsApp
+  await enviarWhatsApp(telefono, `Hola ${nombre}, tu pedido fue recibido.\nTotal: $${total}\nEstado: pendiente.`);
 
-  res.json({ mensaje: 'Pedido creado y notificado', pedido: data });
+  res.json({ mensaje: 'Pedido creado y notificado', pedido });
 });
+
+// Ajustar función enviarWhatsApp para recibir el número del cliente
+async function enviarWhatsApp(numero, texto) {
+  await fetch(`https://graph.facebook.com/v17.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: numero,
+      type: 'text',
+      text: { body: texto }
+    })
+  });
+}
+
 
 
 // Webhook de verificación
 app.get('/webhook', (req, res) => {
-  const VERIFY_TOKEN = "pedidos123"; // inventado, ponlo igual en Meta Developers
+  const VERIFY_TOKEN = "pedidos123"; // igual en Meta Developers
 
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -101,28 +114,6 @@ app.post('/webhook', (req, res) => {
   // Aquí puedes procesar el mensaje recibido
   res.sendStatus(200);
 });
-
-// Función para enviar mensajes a WhatsApp (usando fetch nativo de Node 18+)
-async function enviarWhatsApp(texto) {
-  try {
-    await fetch(`https://graph.facebook.com/v17.0/${process.env.WHATSAPP_PHONE_ID}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: process.env.WHATSAPP_DESTINO, // número destino en formato internacional
-        type: 'text',
-        text: { body: texto }
-      })
-    });
-    console.log("Mensaje enviado a WhatsApp:", texto);
-  } catch (err) {
-    console.error("Error enviando WhatsApp:", err);
-  }
-}
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
