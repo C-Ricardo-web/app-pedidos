@@ -326,7 +326,7 @@ app.post("/webhook", async (req, res) => {
 
       console.log("📌 Estado cambiado a: finalizado");
 
-      // 1. Obtener costo de domicilio desde tabla barrios (flexible)
+      // 1. Obtener costo de domicilio desde tabla barrios
       const barrioCliente = conv.barrio.trim();
       const { data: barrioData } = await supabase
         .from("barrios")
@@ -341,21 +341,33 @@ app.post("/webhook", async (req, res) => {
         );
       }
 
-      // 2. Obtener info de platos desde tabla platos (flexible, uno por uno)
+      // 2. Obtener info de platos desde tabla menu
       const platosDetallados = [];
       for (const nombre of conv.platos) {
+        const nombreNormalizado = nombre.trim().toLowerCase();
         const { data: platoData } = await supabase
-          .from("platos")
+          .from("menu")
           .select("id, nombre_plato, precio")
-          .ilike("nombre_plato", `%${nombre}%`)
+          .ilike("nombre_plato", `%${nombreNormalizado}%`)
           .maybeSingle();
 
-        platosDetallados.push({
-          plato_id: platoData?.id || null,
-          nombre_plato: platoData?.nombre_plato || nombre,
-          precio: platoData?.precio || 0,
-          cantidad: 1,
-        });
+        if (platoData) {
+          platosDetallados.push({
+            plato_id: platoData.id,
+            nombre_plato: platoData.nombre_plato,
+            precio: platoData.precio,
+            cantidad: 1,
+          });
+        } else {
+          // Si no se encuentra, registrar como texto libre
+          platosDetallados.push({
+            plato_id: null,
+            nombre_plato: nombre,
+            precio: 0,
+            cantidad: 1,
+          });
+          console.warn(`⚠️ Plato no reconocido: "${nombre}"`);
+        }
       }
 
       // 3. Calcular subtotal y total
