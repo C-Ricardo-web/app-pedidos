@@ -327,7 +327,7 @@ case "confirmacion":
   console.log("📌 Estado cambiado a: finalizado");
 
   // 1. Obtener todos los barrios y buscar coincidencia aproximada
-  const { data: barriosData } = await supabase
+  const { data: barriosData = [] } = await supabase
     .from("barrios")
     .select("nombre_barrio, precio_domicilio");
 
@@ -342,7 +342,7 @@ case "confirmacion":
   }
 
   // 2. Obtener todos los platos y buscar coincidencia aproximada
-  const { data: menuData } = await supabase
+  const { data: menuData = [] } = await supabase
     .from("platos")
     .select("id, nombre_plato, precio");
 
