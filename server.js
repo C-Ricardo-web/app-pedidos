@@ -235,7 +235,7 @@ app.post("/webhook", async (req, res) => {
   if (error) console.error("❌ Error buscando conversación:", error.message);
   console.log("📂 Conversación encontrada:", conv);
 
-  if (!conv) {
+  if (!conv || conv.estado === "finalizado") {
     // Crear nueva conversación
     let { data: nuevaConv, error: insertError } = await supabase
       .from("conversaciones")
