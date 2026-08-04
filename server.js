@@ -327,14 +327,19 @@ app.post("/webhook", async (req, res) => {
       console.log("📌 Estado cambiado a: finalizado");
 
       // 1. Obtener costo de domicilio desde tabla barrios (flexible)
-      const barrioCliente = conv.barrio.trim();
-      const { data: barrioData } = await supabase
-        .from("barrios")
-        .select("precio_domicilio")
-        .ilike("nombre_barrio", `%${barrioCliente}%`)
-        .maybeSingle();
+const barrioCliente = conv.barrio.trim().toLowerCase();
 
-      const domicilio = barrioData?.precio_domicilio || 0;
+const { data: barriosData } = await supabase
+  .from("barrios")
+  .select("nombre_barrio, precio_domicilio");
+
+// Buscar coincidencia aproximada
+const barrioMatch = barriosData.find(b =>
+  b.nombre_barrio.toLowerCase().includes(barrioCliente)
+);
+
+const domicilio = barrioMatch?.precio_domicilio || 0;
+
       if (!barrioData) {
         console.warn(
           `⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`,
@@ -342,21 +347,22 @@ app.post("/webhook", async (req, res) => {
       }
 
       // 2. Obtener info de platos desde tabla platos (flexible, uno por uno)
-      const platosDetallados = [];
-      for (const nombre of conv.platos) {
-        const { data: platoData } = await supabase
-          .from("platos")
-          .select("id, nombre_plato, precio")
-          .ilike("nombre_plato", `%${nombre}%`)
-          .maybeSingle();
+const { data: menuData } = await supabase
+  .from("platos")
+  .select("id, nombre_plato, precio");
 
-        platosDetallados.push({
-          plato_id: platoData?.id || null,
-          nombre_plato: platoData?.nombre_plato || nombre,
-          precio: platoData?.precio || 0,
-          cantidad: 1,
-        });
-      }
+const platosDetallados = conv.platos.map(nombre => {
+  const match = menuData.find(p =>
+    p.nombre_plato.toLowerCase().includes(nombre.toLowerCase())
+  );
+  return {
+    plato_id: match?.id || null,
+    nombre_plato: match?.nombre_plato || nombre,
+    precio: match?.precio || 0,
+    cantidad: 1
+  };
+});
+
 
       // 3. Calcular subtotal y total
       const subtotal = platosDetallados.reduce(
@@ -408,18 +414,19 @@ app.post("/webhook", async (req, res) => {
       }
 
       // 6. Confirmación al cliente con desglose
-      await enviarWhatsApp(
-        telefono,
-        `✅ Pedido confirmado!\n` +
-          `Nombre: ${conv.nombre}\n` +
-          `Dirección: ${conv.direccion}\n` +
-          `Barrio: ${conv.barrio}\n` +
-          `Platos:\n${platosDetallados.map((p) => `- ${p.nombre_plato} $${p.precio}`).join("\n")}\n` +
-          `Observación: ${mensaje}\n\n` +
-          `Subtotal: $${subtotal}\n` +
-          `Domicilio: $${domicilio}\n` +
-          `Total: $${total}`,
-      );
+await enviarWhatsApp(
+  telefono,
+  `✅ Pedido confirmado!\n` +
+  `Nombre: ${conv.nombre}\n` +
+  `Dirección: ${conv.direccion}\n` +
+  `Barrio: ${conv.barrio}\n` +
+  `Platos:\n${platosDetallados.map(p => `- ${p.nombre_plato} x${p.cantidad} $${p.precio}`).join("\n")}\n` +
+  `Observación: ${mensaje}\n\n` +
+  `Subtotal: $${subtotal}\n` +
+  `Domicilio: $${domicilio}\n` +
+  `Total: $${total}`
+);
+
 
       break;
   }
