@@ -477,18 +477,19 @@ for (const plato of conv.platos) {
         console.log("✅ Platos guardados en pedido_detalle");
       }
 
-      // 6. Confirmación al cliente
+// 6. Confirmación al cliente
 await enviarWhatsApp(
   telefono,
   `✅ Pedido confirmado!\n` +
   `Cliente: ${conv.nombre}\n` +
   `Dirección: ${conv.direccion}\n` +
   `Barrio: ${conv.barrio}\n` +
-  `Platos: ${platosDetallados.map((p) => p.nombre_plato).join(", ")}\n` +
+  `Platos: ${platosDetallados.map((p) => `${p.cantidad} ${p.nombre_plato}`).join(", ")}\n` +
   `Obs: ${mensaje || "Ninguna"}\n` +
   `Subtotal: $${subtotal} | Domicilio: $${domicilio}\n` +
   `TOTAL: $${total}`
 );
+
 
 
       break;
