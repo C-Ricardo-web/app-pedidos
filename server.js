@@ -60,12 +60,15 @@ app.post('/pedido', async (req, res) => {
 
 // 4. Insertar detalle de platos
 await Promise.all(platos.map(plato =>
-  supabase.from('pedido_detalle').insert([{ 
-    pedido_id: pedido.id, 
-    nombre_plato: plato.nombre_plato, 
-    precio: plato.precio 
+  supabase.from('pedido_detalle').insert([{
+    pedido_id: pedido.id,
+    plato_id: plato.plato_id,
+    nombre_plato: plato.nombre_plato,
+    precio: plato.precio,
+    cantidad: plato.cantidad
   }])
 ));
+
 
 
   // 5. Enviar confirmación al cliente por WhatsApp

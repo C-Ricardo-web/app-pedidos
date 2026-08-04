@@ -220,15 +220,15 @@
 
       async function crearPedido() {
   const nombre = document.getElementById("nombre").value.trim();
-  const barrioSelect = document.getElementById("barrio");
-  const barrio = barrioSelect.options[barrioSelect.selectedIndex].text;
+const barrioValue = barrioSelect.value;
+const barrioNombre = barrioSelect.options[barrioSelect.selectedIndex].text;
   const direccion = document.getElementById("direccion").value.trim();
   const telefono = document.getElementById("telefono").value.trim();
   const domicilio = parseInt(document.getElementById("domicilio").value);
   const observacion = document.getElementById("observacion").value.trim();
 
-if (!nombre || !direccion || !telefono || !barrioSelect || platosSeleccionados.length === 0) {
-  alert("Por favor completa todos los campos obligatorios: Nombre, Barrio, Dirección, Teléfono y al menos un plato.");
+if (!nombre || !direccion || !telefono || !barrioValue || platosSeleccionados.length === 0) {
+  alert("Por favor completa Nombre, Barrio, Dirección, Teléfono y al menos un plato.");
   return;
 }
 
@@ -236,22 +236,28 @@ if (!nombre || !direccion || !telefono || !barrioSelect || platosSeleccionados.l
   const subtotal = platosSeleccionados.reduce((acc, p) => acc + p.precio, 0);
   const total = subtotal + domicilio;
 
-  const response = await fetch("/pedido", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      nombre,
-      direccion,
-      telefono,
-      domicilio,
-      platos: platosSeleccionados,
-      subtotal,
-      total,
-      estado: "pendiente",
-      barrio,
-      observacion
-    })
-  });
+const response = await fetch("/pedido", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    nombre,
+    direccion,
+    telefono,
+    domicilio,
+    subtotal,
+    total,
+    estado: "pendiente",
+    barrio: barrioNombre, // usa el texto del barrio
+    observacion,
+    platos: platosSeleccionados.map(p => ({
+      plato_id: p.id,
+      nombre_plato: p.nombre_plato,
+      precio: p.precio,
+      cantidad: 1
+    }))
+  })
+});
+
 
   const data = await response.json();
   if (data.error) {
