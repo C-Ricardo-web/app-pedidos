@@ -204,30 +204,42 @@ function obtenerTexto(body) {
 }
 
 function obtenerNumero(body) {
-  return body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || "";
+  // Normalizar: quitar "+" si viene en el número
+  return (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || "").replace("+", "");
 }
 
 // Webhook para recibir mensajes entrantes y manejar flujo conversacional
 app.post("/webhook", async (req, res) => {
-  const mensaje = obtenerTexto(req.body);   // texto entrante
-  const telefono = obtenerNumero(req.body); // número del cliente
+  const mensaje = obtenerTexto(req.body);
+  const telefono = obtenerNumero(req.body);
+
+  console.log("➡️ Mensaje entrante:", mensaje);
+  console.log("➡️ Número entrante:", telefono);
 
   // Buscar conversación activa
-  let { data: conv } = await supabase
+  let { data: conv, error } = await supabase
     .from("conversaciones")
     .select("*")
     .eq("telefono", telefono)
-    .single();
+    .maybeSingle();
+
+  console.log("📂 Conversación encontrada:", conv);
+  if (error) console.error("❌ Error buscando conversación:", error.message);
 
   if (!conv) {
     // Crear nueva conversación
-    conv = await supabase
+    let { data: nuevaConv, error: insertError } = await supabase
       .from("conversaciones")
       .insert([{ telefono, estado: "nombre" }])
       .select()
       .single();
 
-    await enviarWhatsApp(telefono, "Hola 👋, ¿cuál es tu nombre?");
+    if (insertError) {
+      console.error("❌ Error insertando conversación:", insertError.message);
+    } else {
+      console.log("✅ Nueva conversación creada:", nuevaConv);
+      await enviarWhatsApp(telefono, "Hola 👋, ¿cuál es tu nombre?");
+    }
     return res.sendStatus(200);
   }
 
@@ -238,9 +250,7 @@ app.post("/webhook", async (req, res) => {
         .update({ nombre: mensaje, estado: "direccion" })
         .eq("id", conv.id);
 
-      // refrescar conv
-      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
-
+      console.log("📌 Estado cambiado a: direccion");
       await enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
       break;
 
@@ -250,8 +260,7 @@ app.post("/webhook", async (req, res) => {
         .update({ direccion: mensaje, estado: "barrio" })
         .eq("id", conv.id);
 
-      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
-
+      console.log("📌 Estado cambiado a: barrio");
       await enviarWhatsApp(telefono, "¿En qué barrio estás? (ej. La Castellana)");
       break;
 
@@ -261,8 +270,7 @@ app.post("/webhook", async (req, res) => {
         .update({ barrio: mensaje, estado: "platos" })
         .eq("id", conv.id);
 
-      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
-
+      console.log("📌 Estado cambiado a: platos");
       await enviarWhatsApp(
         telefono,
         "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)"
@@ -278,8 +286,7 @@ app.post("/webhook", async (req, res) => {
         })
         .eq("id", conv.id);
 
-      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
-
+      console.log("📌 Estado cambiado a: confirmacion");
       await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
       break;
 
@@ -289,7 +296,7 @@ app.post("/webhook", async (req, res) => {
         .update({ observacion: mensaje, estado: "finalizado" })
         .eq("id", conv.id);
 
-      conv = await supabase.from("conversaciones").select("*").eq("id", conv.id).single();
+      console.log("📌 Estado cambiado a: finalizado");
 
       // Crear pedido real en tablas pedidos + pedido_detalle
       await crearPedidoDesdeConversacion(conv);
@@ -303,6 +310,7 @@ app.post("/webhook", async (req, res) => {
 
   res.sendStatus(200);
 });
+
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
