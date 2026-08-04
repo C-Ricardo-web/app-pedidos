@@ -200,90 +200,28 @@ app.get("/webhook", (req, res) => {
 
 // Webhook para recibir mensajes entrantes
 app.post("/webhook", async (req, res) => {
-  const mensaje = obtenerTexto(req.body); // texto entrante
-  const telefono = obtenerNumero(req.body); // número del cliente
+  try {
+    const entry = req.body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const message = changes?.value?.messages?.[0];
 
-  // Buscar conversación activa
-  let { data: conv } = await supabase
-    .from("conversaciones")
-    .select("*")
-    .eq("telefono", telefono)
-    .single();
+    if (message) {
+      const numero = message.from; // número del cliente
+      const texto = message.text?.body; // texto entrante
 
-  if (!conv) {
-    // Crear nueva conversación
-    conv = await supabase
-      .from("conversaciones")
-      .insert([
-        {
-          telefono,
-          estado: "nombre",
-        },
-      ])
-      .select()
-      .single();
+      console.log("Mensaje recibido:", texto);
 
-    enviarWhatsApp(telefono, "Hola 👋, ¿cuál es tu nombre?");
-    return res.sendStatus(200);
+      // Respuesta automática mínima
+      await enviarWhatsApp(numero, "Hola 👋, ¿cuál es tu nombre?");
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("Error en webhook:", err);
+    res.sendStatus(500);
   }
-
-  switch (conv.estado) {
-    case "nombre":
-      await supabase
-        .from("conversaciones")
-        .update({ nombre: mensaje, estado: "direccion" })
-        .eq("id", conv.id);
-      enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
-      break;
-
-    case "direccion":
-      await supabase
-        .from("conversaciones")
-        .update({ direccion: mensaje, estado: "barrio" })
-        .eq("id", conv.id);
-      enviarWhatsApp(telefono, "¿En qué barrio estás? (ej. La Castellana)");
-      break;
-
-    case "barrio":
-      await supabase
-        .from("conversaciones")
-        .update({ barrio: mensaje, estado: "platos" })
-        .eq("id", conv.id);
-      enviarWhatsApp(
-        telefono,
-        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)",
-      );
-      break;
-
-    case "platos":
-      await supabase
-        .from("conversaciones")
-        .update({
-          platos: mensaje.split(",").map((p) => p.trim()),
-          estado: "confirmacion",
-        })
-        .eq("id", conv.id);
-      enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
-      break;
-
-    case "confirmacion":
-      await supabase
-        .from("conversaciones")
-        .update({ observacion: mensaje, estado: "finalizado" })
-        .eq("id", conv.id);
-
-      // Crear pedido real en tablas pedidos + pedido_detalle
-      await crearPedidoDesdeConversacion(conv);
-
-      enviarWhatsApp(
-        telefono,
-        `✅ Pedido confirmado!\nNombre: ${conv.nombre}\nDirección: ${conv.direccion}\nBarrio: ${conv.barrio}\nPlatos: ${conv.platos.join(", ")}\nTotal calculado en sistema.`,
-      );
-      break;
-  }
-
-  res.sendStatus(200);
 });
+
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
