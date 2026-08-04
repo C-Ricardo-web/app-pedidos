@@ -345,29 +345,28 @@ app.post("/webhook", async (req, res) => {
         );
       }
 
-      // 2. Obtener info de platos desde tabla platos
-      const { data: platosData } = await supabase
-        .from("platos")
-        .select("id, nombre_plato, precio")
-        .in("nombre_plato", conv.platos); // busca por nombres que el cliente escribió
+// 2. Obtener info de platos desde tabla platos (flexible)
+const { data: platosData } = await supabase
+  .from("platos")
+  .select("id, nombre_plato, precio")
+  .in("nombre_plato", conv.platos) // si quieres exacto
+  // .ilike("nombre_plato", `%${conv.platos[0]}%`) // si quieres tolerante
+  ;
 
-      // Mapear conv.platos con datos reales
-      const platosDetallados = conv.platos.map((nombre) => {
-        const info = platosData.find((p) => p.nombre_plato === nombre);
-        return {
-          plato_id: info?.id || null,
-          nombre_plato: nombre,
-          precio: info?.precio || 0,
-          cantidad: 1,
-        };
-      });
+const platosDetallados = conv.platos.map(nombre => {
+  const info = platosData?.find(p => p.nombre_plato.toLowerCase() === nombre.toLowerCase());
+  return {
+    plato_id: info?.id || null,
+    nombre_plato: nombre,
+    precio: info?.precio || 0,
+    cantidad: 1
+  };
+});
 
-      // 3. Calcular subtotal y total
-      const subtotal = platosDetallados.reduce(
-        (acc, p) => acc + p.precio * p.cantidad,
-        0,
-      );
-      const total = subtotal + domicilio;
+// 3. Calcular subtotal y total
+const subtotal = platosDetallados.reduce((acc, p) => acc + (p.precio * p.cantidad), 0);
+const total = subtotal + domicilio;
+
 
       // 4. Insertar pedido
       const { data: pedido, error } = await supabase
