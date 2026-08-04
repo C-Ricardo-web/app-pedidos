@@ -227,7 +227,7 @@
   const domicilio = parseInt(document.getElementById("domicilio").value);
   const observacion = document.getElementById("observacion").value.trim();
 
-  if (!nombre || !direccion || !telefono || platosSeleccionados.length === 0) {
+  if (!nombre || !direccion || !telefono || !barrio || platosSeleccionados.length === 0) {
     alert("Por favor completa todos los campos y agrega al menos un plato.");
     return;
   }
@@ -243,6 +243,7 @@
       direccion,
       telefono,
       domicilio,
+      platos: platosSeleccionados,
       subtotal,
       total,
       estado: "pendiente",
