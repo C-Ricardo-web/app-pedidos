@@ -199,7 +199,6 @@ app.get("/webhook", (req, res) => {
 });
 
 // Funciones auxiliares para extraer texto y número del JSON de Meta
-// Funciones auxiliares
 function obtenerTexto(body) {
   return (
     body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body || null
