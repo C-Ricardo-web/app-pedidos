@@ -271,292 +271,307 @@ app.post("/webhook", async (req, res) => {
   }
 
   // --- Funciones auxiliares (declarar UNA vez, antes del switch) ---
-const normalizar = (texto) => {
-  if (!texto || typeof texto !== "string") return "";
-  return texto
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // elimina acentos
-    .replace(/\s+/g, " ")
-    .trim();
-};
+  const normalizar = (texto) => {
+    if (!texto || typeof texto !== "string") return "";
+    return texto
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // elimina acentos
+      .replace(/\s+/g, " ")
+      .trim();
+  };
 
-const singularizar = (texto) => {
-  if (!texto || typeof texto !== "string") return texto;
-  // regla simple: quitar 's' final si existe y la palabra tiene más de 2 caracteres
-  return texto.endsWith("s") && texto.length > 2 ? texto.slice(0, -1) : texto;
-};
+  const singularizar = (texto) => {
+    if (!texto || typeof texto !== "string") return texto;
+    // regla simple: quitar 's' final si existe y la palabra tiene más de 2 caracteres
+    return texto.endsWith("s") && texto.length > 2 ? texto.slice(0, -1) : texto;
+  };
 
-// --- Flujo conversacional (reemplaza tu switch actual por este) ---
-switch (conv.estado) {
-  case "nombre":
-    await supabase
-      .from("conversaciones")
-      .update({ nombre: mensaje, estado: "direccion" })
-      .eq("id", conv.id);
-    console.log("📌 Estado cambiado a: direccion");
-    await enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
-    break;
+  // --- Flujo conversacional (reemplaza tu switch actual por este) ---
+  switch (conv.estado) {
+    case "nombre":
+      await supabase
+        .from("conversaciones")
+        .update({ nombre: mensaje, estado: "direccion" })
+        .eq("id", conv.id);
+      console.log("📌 Estado cambiado a: direccion");
+      await enviarWhatsApp(telefono, "Perfecto, ahora dime tu dirección 🏠");
+      break;
 
-  case "direccion":
-    await supabase
-      .from("conversaciones")
-      .update({ direccion: mensaje, estado: "barrio" })
-      .eq("id", conv.id);
-    console.log("📌 Estado cambiado a: barrio");
-    await enviarWhatsApp(telefono, "¿En qué barrio estás? (ej. La Castellana)");
-    break;
-
-  case "barrio":
-    // Normalizar entrada del usuario
-    const barrioInputNormalizado = normalizar(mensaje);
-
-    // Buscar coincidencia flexible en tabla barrios (no listar barrios en WA)
-    const { data: barrioMatch } = await supabase
-      .from("barrios")
-      .select("nombre_barrio")
-      .ilike("nombre_barrio", `%${barrioInputNormalizado}%`)
-      .maybeSingle();
-
-    if (!barrioMatch) {
+    case "direccion":
+      await supabase
+        .from("conversaciones")
+        .update({ direccion: mensaje, estado: "barrio" })
+        .eq("id", conv.id);
+      console.log("📌 Estado cambiado a: barrio");
       await enviarWhatsApp(
         telefono,
-        "No reconocí el barrio que escribiste. Por favor intenta de nuevo con el nombre oficial."
+        "¿En qué barrio estás? (ej. La Castellana)",
       );
-      return res.sendStatus(200); // detener flujo hasta que el cliente corrija
-    }
+      break;
 
-    // Guardar barrio oficial y avanzar a platos
-    await supabase
-      .from("conversaciones")
-      .update({ barrio: barrioMatch.nombre_barrio, estado: "platos" })
-      .eq("id", conv.id);
+    case "barrio":
+      // Normalizar entrada del usuario
+      const barrioInputNormalizado = normalizar(mensaje);
 
-    console.log("📌 Estado cambiado a: platos");
-
-    // Obtener menú disponible (para mostrar en WA)
-    const { data: menu, error: menuError } = await supabase
-      .from("menu")
-      .select("nombre_plato, precio")
-      .eq("disponible", true);
-
-    if (menuError) {
-      console.error("❌ Error cargando menú:", menuError.message);
-      await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
-      return res.sendStatus(200);
-    }
-
-    const listaPlatos = menu.map((p) => `${p.nombre_plato} ($${p.precio})`).join("\n");
-
-    await enviarWhatsApp(
-      telefono,
-      "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)\n\nMenú disponible:\n" +
-        listaPlatos
-    );
-    break;
-
-  case "platos":
-    // Obtener menú disponible (datos completos)
-    const { data: menuPlatos, error: menuError2 } = await supabase
-      .from("menu")
-      .select("id, nombre_plato, precio")
-      .eq("disponible", true);
-
-    if (menuError2) {
-      console.error("❌ Error cargando menú:", menuError2.message);
-      await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
-      return res.sendStatus(200);
-    }
-
-    // Parsear mensaje del cliente (varios separados por coma)
-    const items = (mensaje || "").split(",").map((p) => p.trim()).filter(Boolean);
-    const platos = [];
-
-    for (const item of items) {
-      const match = item.match(/^(\d+)\s+(.*)$/); // ej. "4 arepa rellena"
-      let cantidad = 1;
-      let nombrePlato = item;
-
-      if (match) {
-        cantidad = parseInt(match[1], 10) || 1;
-        nombrePlato = match[2];
-      }
-
-      // Normalizar y buscar con tolerancia
-      let nombreNormalizado = normalizar(nombrePlato);
-      let platoData = menuPlatos.find((p) =>
-        normalizar(p.nombre_plato).includes(nombreNormalizado)
-      );
-
-      // Si no encuentra, probar singular (ej. "arepas" -> "arepa")
-      if (!platoData) {
-        const singular = singularizar(nombreNormalizado);
-        if (singular !== nombreNormalizado) {
-          platoData = menuPlatos.find((p) =>
-            normalizar(p.nombre_plato).includes(singular)
-          );
-          nombreNormalizado = singular;
-        }
-      }
-
-      // Si aún no encuentra, intentar coincidencia por palabras (split)
-      if (!platoData) {
-        const palabras = nombreNormalizado.split(" ").filter(Boolean);
-        if (palabras.length > 1) {
-          // buscar si todos los tokens aparecen en el nombre del plato
-          platoData = menuPlatos.find((p) => {
-            const np = normalizar(p.nombre_plato);
-            return palabras.every((t) => np.includes(t));
-          });
-        }
-      }
-
-      if (platoData) {
-        platos.push({
-          plato_id: platoData.id,
-          nombre_plato: platoData.nombre_plato,
-          precio: platoData.precio,
-          cantidad,
-        });
-      } else {
-        console.warn(`⚠️ Plato no reconocido: "${item}"`);
-      }
-    }
-
-    // Validar que haya al menos un plato válido
-    if (platos.length === 0) {
-      await enviarWhatsApp(
-        telefono,
-        "No entendí los platos que pediste. Por favor escribe el nombre tal como aparece en el menú:\n" +
-          menuPlatos.map((p) => `${p.nombre_plato} ($${p.precio})`).join("\n")
-      );
-      return res.sendStatus(200); // detener flujo
-    }
-
-    // Guardar platos en conversación y avanzar
-    await supabase
-      .from("conversaciones")
-      .update({ platos, estado: "confirmacion" })
-      .eq("id", conv.id);
-
-    console.log("📌 Estado cambiado a: confirmacion");
-    await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
-    break;
-
-  case "confirmacion":
-    // Actualizar conversación a finalizado
-    await supabase
-      .from("conversaciones")
-      .update({ observacion: mensaje, estado: "finalizado" })
-      .eq("id", conv.id);
-
-    console.log("📌 Estado cambiado a: finalizado");
-
-    // 1. Obtener costo de domicilio desde tabla barrios
-    const barrioCliente = (conv.barrio || "").trim();
-    const { data: barrioPrecio } = await supabase
-      .from("barrios")
-      .select("precio_domicilio")
-      .ilike("nombre_barrio", `%${normalizar(barrioCliente)}%`)
-      .maybeSingle();
-
-    const domicilio = barrioPrecio?.precio_domicilio || 0;
-    if (!barrioPrecio) {
-      console.warn(`⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`);
-    }
-
-    // 2. Obtener info de platos desde tabla menu
-    const platosDetallados = [];
-    for (const plato of conv.platos || []) {
-      // Normalizar nombre del plato guardado
-      const nombreNormalizado = normalizar(plato.nombre_plato);
-
-      // Buscar coincidencia en tabla menu (tolerante)
-      const { data: platoData } = await supabase
-        .from("menu")
-        .select("id, nombre_plato, precio")
-        .ilike("nombre_plato", `%${nombreNormalizado}%`)
+      // Buscar coincidencia flexible en tabla barrios (no listar barrios en WA)
+      const { data: barrioMatch } = await supabase
+        .from("barrios")
+        .select("nombre_barrio")
+        .ilike("nombre_barrio", `%${barrioInputNormalizado}%`)
         .maybeSingle();
 
-      if (platoData) {
-        platosDetallados.push({
-          plato_id: platoData.id,
-          nombre_plato: platoData.nombre_plato,
-          precio: platoData.precio,
-          cantidad: plato.cantidad || 1,
-        });
-      } else {
-        // Si no se encuentra, conservar lo que el cliente escribió
-        platosDetallados.push({
-          plato_id: plato.plato_id || null,
-          nombre_plato: plato.nombre_plato,
-          precio: plato.precio || 0,
-          cantidad: plato.cantidad || 1,
-        });
-        console.warn(`⚠️ Plato no reconocido: "${plato.nombre_plato}"`);
+      if (!barrioMatch) {
+        await enviarWhatsApp(
+          telefono,
+          "No reconocí el barrio que escribiste. Por favor intenta de nuevo con el nombre oficial.",
+        );
+        return res.sendStatus(200); // detener flujo hasta que el cliente corrija
       }
-    }
 
-    // 3. Calcular subtotal y total
-    const subtotal = platosDetallados.reduce((acc, p) => acc + (p.precio || 0) * (p.cantidad || 1), 0);
-    const total = subtotal + domicilio;
+      // Guardar barrio oficial y avanzar a platos
+      await supabase
+        .from("conversaciones")
+        .update({ barrio: barrioMatch.nombre_barrio, estado: "platos" })
+        .eq("id", conv.id);
 
-    // 4. Insertar pedido
-    const { data: pedido, error } = await supabase
-      .from("pedidos")
-      .insert([
-        {
-          nombre: conv.nombre,
-          direccion: conv.direccion,
-          telefono: conv.telefono,
-          domicilio,
-          subtotal,
-          total,
-          estado: "pendiente",
-          barrio: conv.barrio,
-          observacion: mensaje,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
+      console.log("📌 Estado cambiado a: platos");
 
-    if (error) {
-      console.error("❌ Error creando pedido:", error.message);
-    } else {
-      console.log("✅ Pedido guardado en tabla pedidos:", pedido);
+      // Obtener menú disponible (para mostrar en WA)
+      const { data: menu, error: menuError } = await supabase
+        .from("menu")
+        .select("nombre_plato, precio")
+        .eq("disponible", true);
 
-      // 5. Insertar detalle de platos
-      await Promise.all(
-        platosDetallados.map((plato) =>
-          supabase.from("pedido_detalle").insert([
-            {
-              pedido_id: pedido.id,
-              plato_id: plato.plato_id,
-              nombre_plato: plato.nombre_plato,
-              precio: plato.precio,
-              cantidad: plato.cantidad,
-            },
-          ])
-        )
+      if (menuError) {
+        console.error("❌ Error cargando menú:", menuError.message);
+        await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
+        return res.sendStatus(200);
+      }
+
+      const listaPlatos = menu
+        .map((p) => `${p.nombre_plato} ($${p.precio})`)
+        .join("\n");
+
+      await enviarWhatsApp(
+        telefono,
+        "¿Qué plato deseas? 🍔🍕 (puedes escribir varios separados por coma)\n\nMenú disponible:\n" +
+          listaPlatos,
       );
-      console.log("✅ Platos guardados en pedido_detalle");
-    }
+      break;
 
-    // 6. Confirmación al cliente
-    await enviarWhatsApp(
-      telefono,
-      `✅ Pedido confirmado!\n` +
-        `Cliente: ${conv.nombre}\n` +
-        `Dirección: ${conv.direccion}\n` +
-        `Barrio: ${conv.barrio}\n` +
-        `Platos: ${platosDetallados.map((p) => `${p.cantidad} ${p.nombre_plato}`).join(", ")}\n` +
-        `Obs: ${mensaje || "Ninguna"}\n` +
-        `Subtotal: $${subtotal} | Domicilio: $${domicilio}\n` +
-        `TOTAL: $${total}`
-    );
+    case "platos":
+      // Obtener menú disponible (datos completos)
+      const { data: menuPlatos, error: menuError2 } = await supabase
+        .from("menu")
+        .select("id, nombre_plato, precio")
+        .eq("disponible", true);
 
-    break;
+      if (menuError2) {
+        console.error("❌ Error cargando menú:", menuError2.message);
+        await enviarWhatsApp(telefono, "Error interno al cargar el menú.");
+        return res.sendStatus(200);
+      }
+
+      // Parsear mensaje del cliente (varios separados por coma)
+      const items = (mensaje || "")
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const platos = [];
+
+      for (const item of items) {
+        const match = item.match(/^(\d+)\s+(.*)$/); // ej. "4 arepa rellena"
+        let cantidad = 1;
+        let nombrePlato = item;
+
+        if (match) {
+          cantidad = parseInt(match[1], 10) || 1;
+          nombrePlato = match[2];
+        }
+
+        // Normalizar y buscar con tolerancia
+        let nombreNormalizado = normalizar(nombrePlato);
+        let platoData = menuPlatos.find((p) =>
+          normalizar(p.nombre_plato).includes(nombreNormalizado),
+        );
+
+        // Si no encuentra, probar singular (ej. "arepas" -> "arepa")
+        if (!platoData) {
+          const singular = singularizar(nombreNormalizado);
+          if (singular !== nombreNormalizado) {
+            platoData = menuPlatos.find((p) =>
+              normalizar(p.nombre_plato).includes(singular),
+            );
+            nombreNormalizado = singular;
+          }
+        }
+
+        // Si aún no encuentra, intentar coincidencia por palabras (split)
+        if (!platoData) {
+          const palabras = nombreNormalizado.split(" ").filter(Boolean);
+          if (palabras.length > 1) {
+            // buscar si todos los tokens aparecen en el nombre del plato
+            platoData = menuPlatos.find((p) => {
+              const np = normalizar(p.nombre_plato);
+              return palabras.every((t) => np.includes(t));
+            });
+          }
+        }
+
+        if (platoData) {
+          platos.push({
+            plato_id: platoData.id,
+            nombre_plato: platoData.nombre_plato,
+            precio: platoData.precio,
+            cantidad,
+          });
+        } else {
+          console.warn(`⚠️ Plato no reconocido: "${item}"`);
+        }
+      }
+
+      // Validar que haya al menos un plato válido
+      if (platos.length === 0) {
+        await enviarWhatsApp(
+          telefono,
+          "No entendí los platos que pediste. Por favor escribe el nombre tal como aparece en el menú:\n" +
+            menuPlatos
+              .map((p) => `${p.nombre_plato} ($${p.precio})`)
+              .join("\n"),
+        );
+        return res.sendStatus(200); // detener flujo
+      }
+
+      // Guardar platos en conversación y avanzar
+      await supabase
+        .from("conversaciones")
+        .update({ platos, estado: "confirmacion" })
+        .eq("id", conv.id);
+
+      console.log("📌 Estado cambiado a: confirmacion");
+      await enviarWhatsApp(telefono, "¿Quieres añadir alguna observación? ✍️");
+      break;
+
+    case "confirmacion":
+      // Actualizar conversación a finalizado
+      await supabase
+        .from("conversaciones")
+        .update({ observacion: mensaje, estado: "finalizado" })
+        .eq("id", conv.id);
+
+      console.log("📌 Estado cambiado a: finalizado");
+
+      // 1. Obtener costo de domicilio desde tabla barrios
+      const barrioCliente = (conv.barrio || "").trim();
+      const { data: barrioPrecio } = await supabase
+        .from("barrios")
+        .select("precio_domicilio")
+        .ilike("nombre_barrio", `%${normalizar(barrioCliente)}%`)
+        .maybeSingle();
+
+      const domicilio = barrioPrecio?.precio_domicilio || 0;
+      if (!barrioPrecio) {
+        console.warn(
+          `⚠️ Barrio no reconocido: "${conv.barrio}". Se asigna domicilio = 0`,
+        );
+      }
+
+      // 2. Obtener info de platos desde tabla menu
+      const platosDetallados = [];
+      for (const plato of conv.platos || []) {
+        // Normalizar nombre del plato guardado
+        const nombreNormalizado = normalizar(plato.nombre_plato);
+
+        // Buscar coincidencia en tabla menu (tolerante)
+        const { data: platoData } = await supabase
+          .from("menu")
+          .select("id, nombre_plato, precio")
+          .ilike("nombre_plato", `%${nombreNormalizado}%`)
+          .maybeSingle();
+
+        if (platoData) {
+          platosDetallados.push({
+            plato_id: platoData.id,
+            nombre_plato: platoData.nombre_plato,
+            precio: platoData.precio,
+            cantidad: plato.cantidad || 1,
+          });
+        } else {
+          // Si no se encuentra, conservar lo que el cliente escribió
+          platosDetallados.push({
+            plato_id: plato.plato_id || null,
+            nombre_plato: plato.nombre_plato,
+            precio: plato.precio || 0,
+            cantidad: plato.cantidad || 1,
+          });
+          console.warn(`⚠️ Plato no reconocido: "${plato.nombre_plato}"`);
+        }
+      }
+
+      // 3. Calcular subtotal y total
+      const subtotal = platosDetallados.reduce(
+        (acc, p) => acc + (p.precio || 0) * (p.cantidad || 1),
+        0,
+      );
+      const total = subtotal + domicilio;
+
+      // 4. Insertar pedido
+      const { data: pedido, error } = await supabase
+        .from("pedidos")
+        .insert([
+          {
+            nombre: conv.nombre,
+            direccion: conv.direccion,
+            telefono: conv.telefono,
+            domicilio,
+            subtotal,
+            total,
+            estado: "pendiente",
+            barrio: conv.barrio,
+            observacion: mensaje,
+            created_at: new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("❌ Error creando pedido:", error.message);
+      } else {
+        console.log("✅ Pedido guardado en tabla pedidos:", pedido);
+
+        // 5. Insertar detalle de platos
+        await Promise.all(
+          platosDetallados.map((plato) =>
+            supabase.from("pedido_detalle").insert([
+              {
+                pedido_id: pedido.id,
+                plato_id: plato.plato_id,
+                nombre_plato: plato.nombre_plato,
+                precio: plato.precio,
+                cantidad: plato.cantidad,
+              },
+            ]),
+          ),
+        );
+        console.log("✅ Platos guardados en pedido_detalle");
+      }
+
+      // 6. Confirmación al cliente
+      await enviarWhatsApp(
+        telefono,
+        `✅ Pedido confirmado!\n` +
+          `Cliente: ${conv.nombre}\n` +
+          `Dirección: ${conv.direccion}\n` +
+          `Barrio: ${conv.barrio}\n` +
+          `Platos: ${platosDetallados.map((p) => `${p.cantidad} ${p.nombre_plato}`).join(", ")}\n` +
+          `Obs: ${mensaje || "Ninguna"}\n` +
+          `Subtotal: $${subtotal} | Domicilio: $${domicilio}\n` +
+          `TOTAL: $${total}`,
+      );
+
+      break;
   }
 
   res.sendStatus(200);
